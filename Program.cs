@@ -55,6 +55,9 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
+        vk!.DestroyInstance(instance, null);
+        vk!.Dispose();
+
         window?.Dispose();
     }
 
