@@ -9,6 +9,15 @@ using Silk.NET.Windowing;
 var app = new MGSVRenderingApp();
 app.Run();
 
+struct QueueFamilyIndices
+{
+    public uint? GraphicsFamily { get; set; }
+    public bool IsComplete()
+    {
+        return GraphicsFamily.HasValue;
+    }
+}
+
 unsafe class MGSVRenderingApp
 {
     const int WIDTH = 1920;
@@ -28,6 +37,8 @@ unsafe class MGSVRenderingApp
 
     private ExtDebugUtils? debugUtils;
     private DebugUtilsMessengerEXT debugMessenger;
+
+    private PhysicalDevice physicalDevice;
 
     public void Run()
     {
@@ -59,6 +70,7 @@ unsafe class MGSVRenderingApp
     {
         CreateInstance();
         SetupDebugMessenger();
+        PickPhysicalDevice();
     }
 
     private void MainLoop()
@@ -95,7 +107,7 @@ unsafe class MGSVRenderingApp
             ApplicationVersion = new Version32(1, 0, 0),
             PEngineName = (byte*)Marshal.StringToHGlobalAnsi("No Engine"),
             EngineVersion = new Version32(1, 0, 0),
-            ApiVersion = Vk.Version13
+            ApiVersion = Vk.Version11
         };
 
         InstanceCreateInfo createInfo = new()
@@ -123,7 +135,7 @@ unsafe class MGSVRenderingApp
             createInfo.PNext = null;
         }
 
-        if (vk.CreateInstance(ref createInfo, null, out instance) != Result.Success)
+        if (vk.CreateInstance(in createInfo, null, out instance) != Result.Success)
         {
             throw new Exception("Failed to create instance.");
         }
@@ -154,6 +166,7 @@ unsafe class MGSVRenderingApp
     {
         if (!EnableValidationLayers) return;
 
+        //TryGetInstanceExtension equivilant to method CreateDebugUtilsMessengerEXT from original tutorial.
         if (!vk!.TryGetInstanceExtension(instance, out debugUtils)) return;
 
         DebugUtilsMessengerCreateInfoEXT createInfo = new();
@@ -161,8 +174,66 @@ unsafe class MGSVRenderingApp
 
         if (debugUtils!.CreateDebugUtilsMessenger(instance, in createInfo, null, out debugMessenger) != Result.Success)
         {
-            throw new Exception("Failed to set up debug messenger");
+            throw new Exception("failed to set up debug messenger!");
         }
+    }
+
+    private void PickPhysicalDevice() 
+    {
+        var devices = vk!.GetPhysicalDevices(instance);
+
+        foreach (var device in devices)
+        {
+            if (IsDeviceSuitable(device))
+            {
+                physicalDevice = device;
+                break;
+            }
+        }
+
+        if (physicalDevice.Handle == 0)
+        {
+            throw new Exception("Failed to find a suitable GPU");
+        }
+    }
+
+    private bool IsDeviceSuitable(PhysicalDevice device)
+    {
+        var indices = FindQueueFamilies(device);
+
+        return indices.IsComplete();
+    }
+
+    private QueueFamilyIndices FindQueueFamilies(PhysicalDevice device)
+    {
+        var indices = new QueueFamilyIndices();
+        
+        uint queueFamilyCount = 0;
+        vk!.GetPhysicalDeviceQueueFamilyProperties(device, ref queueFamilyCount, null);
+
+        var queueFamilies = new QueueFamilyProperties[queueFamilyCount];
+        fixed (QueueFamilyProperties* queueFamiliesPtr = queueFamilies)
+        {
+            vk!.GetPhysicalDeviceQueueFamilyProperties(device, ref queueFamilyCount, queueFamiliesPtr);
+        }
+
+        uint i = 0;
+        foreach (var queueFamily in queueFamilies)
+        {
+            if (queueFamily.QueueFlags.HasFlag(QueueFlags.GraphicsBit))
+            {
+                indices.GraphicsFamily = i;
+            }
+
+            if (indices.IsComplete())
+            {
+                break;
+            }
+
+            i++;
+        }
+
+        return indices;
     }
 
     private string[] GetRequiredExtensions()
@@ -172,7 +243,7 @@ unsafe class MGSVRenderingApp
         
         if (EnableValidationLayers)
         {
-            extensions.Append(ExtDebugUtils.ExtensionName).ToArray();
+            return extensions.Append(ExtDebugUtils.ExtensionName).ToArray();
         }
 
         return extensions;
