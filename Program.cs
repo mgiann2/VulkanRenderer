@@ -69,7 +69,7 @@ unsafe class MGSVRenderingApp
             ApplicationVersion = new Version32(1, 0, 0),
             PEngineName = (byte*)Marshal.StringToHGlobalAnsi("No Engine"),
             EngineVersion = new Version32(1, 0, 0),
-            ApiVersion = new Version32(1, 0, 0)
+            ApiVersion = Vk.Version13
         };
 
         InstanceCreateInfo createInfo = new()
