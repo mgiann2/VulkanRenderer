@@ -40,6 +40,9 @@ unsafe class MGSVRenderingApp
 
     private PhysicalDevice physicalDevice;
 
+    private Device device;
+    private Queue graphicsQueue;
+
     public void Run()
     {
         InitWindow();
@@ -71,6 +74,7 @@ unsafe class MGSVRenderingApp
         CreateInstance();
         SetupDebugMessenger();
         PickPhysicalDevice();
+        CreateLogicalDevice();
     }
 
     private void MainLoop()
@@ -84,6 +88,8 @@ unsafe class MGSVRenderingApp
         {
             debugUtils!.DestroyDebugUtilsMessenger(instance, debugMessenger, null);
         }
+
+        vk!.DestroyDevice(device, null);
 
         vk!.DestroyInstance(instance, null);
         vk!.Dispose();
@@ -234,6 +240,55 @@ unsafe class MGSVRenderingApp
         }
 
         return indices;
+    }
+
+    private void CreateLogicalDevice()
+    {
+        QueueFamilyIndices indices = FindQueueFamilies(physicalDevice);
+
+        float queuePriority = 1.0f;
+
+        DeviceQueueCreateInfo queueCreateInfo = new()
+        {
+            SType = StructureType.DeviceQueueCreateInfo,
+            QueueFamilyIndex = indices.GraphicsFamily!.Value,
+            QueueCount = 1,
+            PQueuePriorities = &queuePriority
+        };
+
+        PhysicalDeviceFeatures deviceFeatures = new();
+
+        DeviceCreateInfo createInfo = new()
+        {
+            SType = StructureType.DeviceCreateInfo,
+            PQueueCreateInfos = &queueCreateInfo,
+            QueueCreateInfoCount = 1,
+            PEnabledFeatures = &deviceFeatures,
+            EnabledExtensionCount = 0
+        };
+        
+
+        if (EnableValidationLayers)
+        {
+            createInfo.EnabledLayerCount = (uint) validationLayers.Length;
+            createInfo.PpEnabledLayerNames = (byte**) SilkMarshal.StringArrayToPtr(validationLayers);
+        }
+        else
+        {
+            createInfo.EnabledLayerCount = 0;
+        }
+
+        if (vk!.CreateDevice(physicalDevice, in createInfo, null, out device) != Result.Success)
+        {
+            throw new Exception("Failed to create logical device!");
+        }
+
+        vk!.GetDeviceQueue(device, indices.GraphicsFamily.Value, 0, out graphicsQueue);
+
+        if (EnableValidationLayers)
+        {
+            SilkMarshal.Free((nint) createInfo.PpEnabledLayerNames);
+        }
     }
 
     private string[] GetRequiredExtensions()
