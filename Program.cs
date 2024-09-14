@@ -1,9 +1,11 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
+using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
 
 var app = new MGSVRenderingApp();
@@ -12,9 +14,11 @@ app.Run();
 struct QueueFamilyIndices
 {
     public uint? GraphicsFamily { get; set; }
+    public uint? PresentFamily { get; set; }
+
     public bool IsComplete()
     {
-        return GraphicsFamily.HasValue;
+        return GraphicsFamily.HasValue && PresentFamily.HasValue;
     }
 }
 
@@ -34,6 +38,10 @@ unsafe class MGSVRenderingApp
     private Vk? vk;
 
     private Instance instance;
+
+    private KhrSurface? khrSurface;
+    private SurfaceKHR surface;
+    private Queue presentQueue;
 
     private ExtDebugUtils? debugUtils;
     private DebugUtilsMessengerEXT debugMessenger;
@@ -73,6 +81,7 @@ unsafe class MGSVRenderingApp
     {
         CreateInstance();
         SetupDebugMessenger();
+        CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDevice();
     }
@@ -84,13 +93,14 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
+        vk!.DestroyDevice(device, null);
+
         if (EnableValidationLayers)
         {
             debugUtils!.DestroyDebugUtilsMessenger(instance, debugMessenger, null);
         }
 
-        vk!.DestroyDevice(device, null);
-
+        khrSurface!.DestroySurface(instance, surface, null);
         vk!.DestroyInstance(instance, null);
         vk!.Dispose();
 
@@ -231,6 +241,13 @@ unsafe class MGSVRenderingApp
                 indices.GraphicsFamily = i;
             }
 
+            khrSurface!.GetPhysicalDeviceSurfaceSupport(physicalDevice, i, surface, out var presentSupport);
+
+            if (presentSupport)
+            {
+                indices.PresentFamily = i;
+            }
+
             if (indices.IsComplete())
             {
                 break;
@@ -246,23 +263,32 @@ unsafe class MGSVRenderingApp
     {
         QueueFamilyIndices indices = FindQueueFamilies(physicalDevice);
 
+        var uniqueQueueFamilies = new[] { indices.GraphicsFamily!.Value, indices.PresentFamily!.Value };
+        uniqueQueueFamilies = uniqueQueueFamilies.Distinct().ToArray();
+
+        using var mem = GlobalMemory.Allocate(uniqueQueueFamilies.Length * sizeof(DeviceQueueCreateInfo));
+        var queueCreateInfos = (DeviceQueueCreateInfo*)Unsafe.AsPointer(ref mem.GetPinnableReference());
+
         float queuePriority = 1.0f;
 
-        DeviceQueueCreateInfo queueCreateInfo = new()
+        for (int i = 0; i < uniqueQueueFamilies.Length; i++)
         {
-            SType = StructureType.DeviceQueueCreateInfo,
-            QueueFamilyIndex = indices.GraphicsFamily!.Value,
-            QueueCount = 1,
-            PQueuePriorities = &queuePriority
-        };
+            queueCreateInfos[i] = new()
+            {
+                SType = StructureType.DeviceQueueCreateInfo,
+                QueueFamilyIndex = uniqueQueueFamilies[i],
+                QueueCount = 1,
+                PQueuePriorities = &queuePriority
+            };
+        }
 
         PhysicalDeviceFeatures deviceFeatures = new();
 
         DeviceCreateInfo createInfo = new()
         {
             SType = StructureType.DeviceCreateInfo,
-            PQueueCreateInfos = &queueCreateInfo,
-            QueueCreateInfoCount = 1,
+            PQueueCreateInfos = queueCreateInfos,
+            QueueCreateInfoCount = (uint) uniqueQueueFamilies.Length,
             PEnabledFeatures = &deviceFeatures,
             EnabledExtensionCount = 0
         };
@@ -284,11 +310,22 @@ unsafe class MGSVRenderingApp
         }
 
         vk!.GetDeviceQueue(device, indices.GraphicsFamily.Value, 0, out graphicsQueue);
+        vk!.GetDeviceQueue(device, indices.PresentFamily.Value, 0, out presentQueue);
 
         if (EnableValidationLayers)
         {
             SilkMarshal.Free((nint) createInfo.PpEnabledLayerNames);
         }
+    }
+
+    private void CreateSurface()
+    {
+        if (!vk!.TryGetInstanceExtension(instance, out khrSurface))
+        {
+            throw new NotSupportedException("KHR_surface extension not found.");
+        }
+
+        surface = window!.VkSurface!.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
     }
 
     private string[] GetRequiredExtensions()
