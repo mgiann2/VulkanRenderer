@@ -73,6 +73,7 @@ unsafe class MGSVRenderingApp
 
     private RenderPass renderPass;
     private PipelineLayout pipelineLayout;
+    private Pipeline graphicsPipeline;
 
     public void Run()
     {
@@ -120,6 +121,7 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
+        vk!.DestroyPipeline(device, graphicsPipeline, null);
         vk!.DestroyPipelineLayout(device, pipelineLayout, null);
         vk!.DestroyRenderPass(device, renderPass, null);
 
@@ -586,6 +588,28 @@ unsafe class MGSVRenderingApp
         if (vk!.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out pipelineLayout) != Result.Success)
         {
             throw new Exception("Failed to create pipeline layout!");
+        }
+
+        GraphicsPipelineCreateInfo pipelineInfo = new()
+        {
+            SType = StructureType.GraphicsPipelineCreateInfo,
+            StageCount = 2,
+            PStages = shaderStages,
+            PVertexInputState = &vertexInputInfo,
+            PInputAssemblyState = &inputAssembly,
+            PViewportState = &viewportState,
+            PRasterizationState = &rasterizer,
+            PMultisampleState = &multisampling,
+            PColorBlendState = &colorBlending,
+            Layout = pipelineLayout,
+            RenderPass = renderPass,
+            Subpass = 0,
+            BasePipelineHandle = default
+        };
+
+        if (vk!.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out graphicsPipeline) != Result.Success)
+        {
+            throw new Exception("Failed to create graphics pipeline!");
         }
 
         vk!.DestroyShaderModule(device, vertShaderModule, null);
