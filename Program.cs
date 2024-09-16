@@ -76,6 +76,9 @@ unsafe class MGSVRenderingApp
     private PipelineLayout pipelineLayout;
     private Pipeline graphicsPipeline;
 
+    private CommandPool commandPool;
+    private CommandBuffer commandBuffer;
+
     public void Run()
     {
         InitWindow();
@@ -114,6 +117,8 @@ unsafe class MGSVRenderingApp
         CreateRenderPass();
         CreateGraphicsPipeline();
         CreateFramebuffers();
+        CreateCommandPool();
+        CreateCommandBuffer();
     }
 
     private void MainLoop()
@@ -123,6 +128,8 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
+        vk!.DestroyCommandPool(device, commandPool, null);
+
         foreach (var framebuffer in swapChainFramebuffers!)
         {
             vk!.DestroyFramebuffer(device, framebuffer, null);
@@ -521,29 +528,12 @@ unsafe class MGSVRenderingApp
             PrimitiveRestartEnable = Vk.False
         };
 
-        Viewport viewport = new()
-        {
-            X = 0.0f,
-            Y = 0.0f,
-            Width = (float) swapChainExtent.Width,
-            Height = (float) swapChainExtent.Height,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f
-        };
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = swapChainExtent
-        };
 
         PipelineViewportStateCreateInfo viewportState = new()
         {
             SType = StructureType.PipelineViewportStateCreateInfo,
             ViewportCount = 1,
-            PViewports = &viewport,
             ScissorCount = 1,
-            PScissors = &scissor
         };
 
         PipelineRasterizationStateCreateInfo rasterizer = new()
@@ -649,6 +639,103 @@ unsafe class MGSVRenderingApp
             {
                 throw new Exception("Failed to create framebuffer!");
             }
+        }
+    }
+
+    private void CreateCommandPool()
+    {
+        var queueFamilyIndices = FindQueueFamilies(physicalDevice);
+
+        CommandPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.CommandPoolCreateInfo,
+            Flags = CommandPoolCreateFlags.ResetCommandBufferBit,
+            QueueFamilyIndex = queueFamilyIndices.GraphicsFamily!.Value
+        };
+
+        if (vk!.CreateCommandPool(device, in poolInfo, null, out commandPool) != Result.Success)
+        {
+            throw new Exception("Failed to create command pool!");
+        }
+    }
+
+    private void CreateCommandBuffer()
+    {
+        CommandBufferAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.CommandBufferAllocateInfo,
+            CommandPool = commandPool,
+            Level = CommandBufferLevel.Primary,
+            CommandBufferCount = 1
+        };
+
+        if (vk!.AllocateCommandBuffers(device, in allocInfo, out commandBuffer) != Result.Success)
+        {
+            throw new Exception("Failed to allocate command buffers!");
+        }
+    }
+
+    private void RecordCommandBuffer(CommandBuffer commandBuffer, uint imageIndex)
+    {
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+        };
+
+        if (vk!.BeginCommandBuffer(commandBuffer, in beginInfo) != Result.Success)
+        {
+            throw new Exception("Failed to begin recording command buffer!");
+        }
+
+        RenderPassBeginInfo renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassBeginInfo,
+            RenderPass = renderPass,
+            Framebuffer = swapChainFramebuffers![imageIndex],
+            RenderArea = 
+            {
+                Offset = { X = 0, Y = 0 },
+                Extent = swapChainExtent
+            }
+        };
+
+        ClearValue clearColor = new()
+        {
+            Color = new() { Float32_0 = 0, Float32_1 = 0, Float32_2 = 0, Float32_3 = 1 }
+        };
+
+        renderPassInfo.ClearValueCount = 1;
+        renderPassInfo.PClearValues = &clearColor;
+
+        vk!.CmdBeginRenderPass(commandBuffer, &renderPassInfo, SubpassContents.Inline);
+
+        vk!.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, graphicsPipeline);
+
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = (float) swapChainExtent.Width,
+            Height = (float) swapChainExtent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f
+        };
+        vk!.CmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapChainExtent
+        };
+        vk!.CmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        vk!.CmdDraw(commandBuffer, 3, 1, 0, 0);
+
+        vk!.CmdEndRenderPass(commandBuffer);
+
+        if (vk!.EndCommandBuffer(commandBuffer) != Result.Success)
+        {
+            throw new Exception("Failed to record command buffer!");
         }
     }
 
