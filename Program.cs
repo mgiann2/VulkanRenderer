@@ -71,6 +71,7 @@ unsafe class MGSVRenderingApp
 
     private ImageView[]? swapChainImageViews;
 
+    private RenderPass renderPass;
     private PipelineLayout pipelineLayout;
 
     public void Run()
@@ -108,6 +109,7 @@ unsafe class MGSVRenderingApp
         CreateLogicalDevice();
         CreateSwapChain();
         CreateImageViews();
+        CreateRenderPass();
         CreateGraphicsPipeline();
     }
 
@@ -119,6 +121,7 @@ unsafe class MGSVRenderingApp
     private void CleanUp()
     {
         vk!.DestroyPipelineLayout(device, pipelineLayout, null);
+        vk!.DestroyRenderPass(device, renderPass, null);
 
         foreach (var imageView in swapChainImageViews!)
         {
@@ -418,6 +421,48 @@ unsafe class MGSVRenderingApp
             {
                 throw new Exception("Failed to create image views!");
             }
+        }
+    }
+
+    private void CreateRenderPass()
+    {
+        AttachmentDescription colorAttachment = new()
+        {
+            Format = swapChainImageFormat,
+            Samples = SampleCountFlags.Count1Bit,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.Store,
+            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilStoreOp = AttachmentStoreOp.DontCare,
+            InitialLayout = ImageLayout.Undefined,
+            FinalLayout = ImageLayout.PresentSrcKhr
+        };
+        
+        AttachmentReference colorAttachmentRef = new()
+        {
+            Attachment = 0,
+            Layout = ImageLayout.ColorAttachmentOptimal
+        };
+
+        SubpassDescription subpass = new()
+        {
+            PipelineBindPoint = PipelineBindPoint.Graphics,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &colorAttachmentRef
+        };
+
+        RenderPassCreateInfo renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassCreateInfo,
+            AttachmentCount = 1,
+            PAttachments = &colorAttachment,
+            SubpassCount = 1,
+            PSubpasses = &subpass
+        };
+
+        if (vk!.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
+        {
+            throw new Exception("Failed to create render pass!");
         }
     }
 
