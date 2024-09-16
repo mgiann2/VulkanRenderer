@@ -68,7 +68,10 @@ unsafe class MGSVRenderingApp
     private Image[]? swapChainImages;
     private Format swapChainImageFormat;
     private Extent2D swapChainExtent;
+
     private ImageView[]? swapChainImageViews;
+
+    private PipelineLayout pipelineLayout;
 
     public void Run()
     {
@@ -105,6 +108,7 @@ unsafe class MGSVRenderingApp
         CreateLogicalDevice();
         CreateSwapChain();
         CreateImageViews();
+        CreateGraphicsPipeline();
     }
 
     private void MainLoop()
@@ -114,6 +118,8 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
+        vk!.DestroyPipelineLayout(device, pipelineLayout, null);
+
         foreach (var imageView in swapChainImageViews!)
         {
             vk!.DestroyImageView(device, imageView, null);
@@ -413,6 +419,158 @@ unsafe class MGSVRenderingApp
                 throw new Exception("Failed to create image views!");
             }
         }
+    }
+
+    private void CreateGraphicsPipeline()
+    {
+        var vertShaderCode = File.ReadAllBytes("shaders/vert.spv");
+        var fragShaderCode = File.ReadAllBytes("shaders/frag.spv");
+
+        var vertShaderModule = CreateShaderModule(vertShaderCode);
+        var fragShaderModule = CreateShaderModule(fragShaderCode);
+
+        PipelineShaderStageCreateInfo vertShaderStageInfo = new()
+        {
+            SType = StructureType.PipelineShaderStageCreateInfo,
+            Stage = ShaderStageFlags.VertexBit,
+            Module = vertShaderModule,
+            PName = (byte*) SilkMarshal.StringToPtr("main")
+        };
+
+        PipelineShaderStageCreateInfo fragShaderStageInfo = new()
+        {
+            SType = StructureType.PipelineShaderStageCreateInfo,
+            Stage = ShaderStageFlags.FragmentBit,
+            Module = fragShaderModule,
+            PName = (byte*) SilkMarshal.StringToPtr("main")
+        };
+
+        var shaderStages = stackalloc[]
+        {
+            vertShaderStageInfo,
+            fragShaderStageInfo
+        };
+
+        PipelineVertexInputStateCreateInfo vertexInputInfo = new()
+        {
+            SType = StructureType.PipelineVertexInputStateCreateInfo,
+            VertexBindingDescriptionCount = 0,
+            PVertexBindingDescriptions = null,
+            VertexAttributeDescriptionCount = 0,
+            PVertexAttributeDescriptions = null
+        };
+
+        PipelineInputAssemblyStateCreateInfo inputAssembly = new()
+        {
+            SType = StructureType.PipelineInputAssemblyStateCreateInfo,
+            Topology = PrimitiveTopology.TriangleList,
+            PrimitiveRestartEnable = Vk.False
+        };
+
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = (float) swapChainExtent.Width,
+            Height = (float) swapChainExtent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f
+        };
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapChainExtent
+        };
+
+        PipelineViewportStateCreateInfo viewportState = new()
+        {
+            SType = StructureType.PipelineViewportStateCreateInfo,
+            ViewportCount = 1,
+            PViewports = &viewport,
+            ScissorCount = 1,
+            PScissors = &scissor
+        };
+
+        PipelineRasterizationStateCreateInfo rasterizer = new()
+        {
+            SType = StructureType.PipelineRasterizationStateCreateInfo,
+            DepthClampEnable = Vk.False,
+            RasterizerDiscardEnable = Vk.False,
+            PolygonMode = PolygonMode.Fill,
+            LineWidth = 1.0f,
+            CullMode = CullModeFlags.BackBit,
+            FrontFace = FrontFace.Clockwise,
+            DepthBiasEnable = Vk.False,
+        };
+
+        PipelineMultisampleStateCreateInfo multisampling = new()
+        {
+            SType = StructureType.PipelineMultisampleStateCreateInfo,
+            SampleShadingEnable = Vk.False,
+            RasterizationSamples = SampleCountFlags.Count1Bit
+        };
+
+        PipelineColorBlendAttachmentState colorBlendAttachment = new()
+        {
+            ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
+            BlendEnable = Vk.False,
+        };
+
+        PipelineColorBlendStateCreateInfo colorBlending = new()
+        {
+            SType = StructureType.PipelineColorBlendStateCreateInfo,
+            LogicOpEnable = Vk.False,
+            LogicOp = LogicOp.Copy,
+            AttachmentCount = 1,
+            PAttachments = &colorBlendAttachment
+        };
+
+        colorBlending.BlendConstants[0] = 0.0f;
+        colorBlending.BlendConstants[1] = 0.0f;
+        colorBlending.BlendConstants[2] = 0.0f;
+        colorBlending.BlendConstants[3] = 0.0f;
+
+        PipelineLayoutCreateInfo pipelineLayoutInfo = new()
+        {
+            SType = StructureType.PipelineLayoutCreateInfo,
+            SetLayoutCount = 0,
+            PushConstantRangeCount = 0
+        };
+
+        if (vk!.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out pipelineLayout) != Result.Success)
+        {
+            throw new Exception("Failed to create pipeline layout!");
+        }
+
+        vk!.DestroyShaderModule(device, vertShaderModule, null);
+        vk!.DestroyShaderModule(device, fragShaderModule, null);
+
+        SilkMarshal.Free((nint)vertShaderStageInfo.PName);
+        SilkMarshal.Free((nint)fragShaderStageInfo.PName);
+    }
+
+    private ShaderModule CreateShaderModule(byte[] code)
+    {
+        ShaderModuleCreateInfo createInfo = new()
+        {
+            SType = StructureType.ShaderModuleCreateInfo,
+            CodeSize = (nuint) code.Length,
+        };
+
+        ShaderModule shaderModule;
+
+        fixed (byte* codePtr = code)
+        {
+            createInfo.PCode = (uint*) codePtr;
+
+            if (vk!.CreateShaderModule(device, in createInfo, null, out shaderModule) != Result.Success)
+            {
+                throw new Exception("Failed to create shader module!");
+            }
+        }
+
+        return shaderModule;
     }
 
     private SurfaceFormatKHR ChooseSwapSurfaceFormat(IReadOnlyList<SurfaceFormatKHR> availableFormats)
