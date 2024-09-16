@@ -70,6 +70,7 @@ unsafe class MGSVRenderingApp
     private Extent2D swapChainExtent;
 
     private ImageView[]? swapChainImageViews;
+    private Framebuffer[]? swapChainFramebuffers;
 
     private RenderPass renderPass;
     private PipelineLayout pipelineLayout;
@@ -112,6 +113,7 @@ unsafe class MGSVRenderingApp
         CreateImageViews();
         CreateRenderPass();
         CreateGraphicsPipeline();
+        CreateFramebuffers();
     }
 
     private void MainLoop()
@@ -121,6 +123,11 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
+        foreach (var framebuffer in swapChainFramebuffers!)
+        {
+            vk!.DestroyFramebuffer(device, framebuffer, null);
+        }
+
         vk!.DestroyPipeline(device, graphicsPipeline, null);
         vk!.DestroyPipelineLayout(device, pipelineLayout, null);
         vk!.DestroyRenderPass(device, renderPass, null);
@@ -617,6 +624,32 @@ unsafe class MGSVRenderingApp
 
         SilkMarshal.Free((nint)vertShaderStageInfo.PName);
         SilkMarshal.Free((nint)fragShaderStageInfo.PName);
+    }
+
+    private void CreateFramebuffers()
+    {
+        swapChainFramebuffers = new Framebuffer[swapChainImageViews!.Length];
+
+        for (int i = 0; i < swapChainImageViews!.Length; i++)
+        {
+            var attachment = swapChainImageViews[i];
+
+            FramebufferCreateInfo framebufferInfo = new()
+            {
+                SType = StructureType.FramebufferCreateInfo,
+                RenderPass = renderPass,
+                AttachmentCount = 1,
+                PAttachments = &attachment,
+                Width = swapChainExtent.Width,
+                Height = swapChainExtent.Height,
+                Layers = 1
+            };
+
+            if (vk!.CreateFramebuffer(device, in framebufferInfo, null, out swapChainFramebuffers[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create framebuffer!");
+            }
+        }
     }
 
     private ShaderModule CreateShaderModule(byte[] code)
