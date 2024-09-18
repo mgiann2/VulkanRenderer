@@ -7,6 +7,7 @@ using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
+using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 var app = new MGSVRenderingApp();
 app.Run();
@@ -79,6 +80,10 @@ unsafe class MGSVRenderingApp
     private CommandPool commandPool;
     private CommandBuffer commandBuffer;
 
+    private Semaphore imageAvailableSemaphore;
+    private Semaphore renderFinishedSemaphore;
+    private Fence inFlightFence;
+
     public void Run()
     {
         InitWindow();
@@ -119,15 +124,22 @@ unsafe class MGSVRenderingApp
         CreateFramebuffers();
         CreateCommandPool();
         CreateCommandBuffer();
+        CreateSyncObjects();
     }
 
     private void MainLoop()
     {
+        window!.Render += DrawFrame;
         window!.Run();
+        vk!.DeviceWaitIdle(device);
     }
 
     private void CleanUp()
     {
+        vk!.DestroySemaphore(device, imageAvailableSemaphore, null);
+        vk!.DestroySemaphore(device, renderFinishedSemaphore, null);
+        vk!.DestroyFence(device, inFlightFence, null);
+
         vk!.DestroyCommandPool(device, commandPool, null);
 
         foreach (var framebuffer in swapChainFramebuffers!)
@@ -467,13 +479,25 @@ unsafe class MGSVRenderingApp
             PColorAttachments = &colorAttachmentRef
         };
 
+        SubpassDependency dependency = new()
+        {
+            SrcSubpass = Vk.SubpassExternal,
+            DstSubpass = 0,
+            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+            SrcAccessMask = 0,
+            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+            DstAccessMask = AccessFlags.ColorAttachmentWriteBit
+        };
+
         RenderPassCreateInfo renderPassInfo = new()
         {
             SType = StructureType.RenderPassCreateInfo,
             AttachmentCount = 1,
             PAttachments = &colorAttachment,
             SubpassCount = 1,
-            PSubpasses = &subpass
+            PSubpasses = &subpass,
+            DependencyCount = 1,
+            PDependencies = &dependency
         };
 
         if (vk!.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
@@ -528,12 +552,29 @@ unsafe class MGSVRenderingApp
             PrimitiveRestartEnable = Vk.False
         };
 
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = (float) swapChainExtent.Width,
+            Height = (float) swapChainExtent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f
+        };
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapChainExtent
+        };
 
         PipelineViewportStateCreateInfo viewportState = new()
         {
             SType = StructureType.PipelineViewportStateCreateInfo,
             ViewportCount = 1,
+            PViewports = &viewport,
             ScissorCount = 1,
+            PScissors = &scissor
         };
 
         PipelineRasterizationStateCreateInfo rasterizer = new()
@@ -711,24 +752,6 @@ unsafe class MGSVRenderingApp
 
         vk!.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, graphicsPipeline);
 
-        Viewport viewport = new()
-        {
-            X = 0.0f,
-            Y = 0.0f,
-            Width = (float) swapChainExtent.Width,
-            Height = (float) swapChainExtent.Height,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f
-        };
-        vk!.CmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = swapChainExtent
-        };
-        vk!.CmdSetScissor(commandBuffer, 0, 1, &scissor);
-
         vk!.CmdDraw(commandBuffer, 3, 1, 0, 0);
 
         vk!.CmdEndRenderPass(commandBuffer);
@@ -737,6 +760,83 @@ unsafe class MGSVRenderingApp
         {
             throw new Exception("Failed to record command buffer!");
         }
+    }
+
+    private void CreateSyncObjects()
+    {
+        SemaphoreCreateInfo semaphoreInfo = new()
+        {
+            SType = StructureType.SemaphoreCreateInfo
+        };
+
+        FenceCreateInfo fenceInfo = new()
+        {
+            SType = StructureType.FenceCreateInfo,
+            Flags = FenceCreateFlags.SignaledBit
+        };
+
+        if (vk!.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphore) != Result.Success ||
+            vk!.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphore) != Result.Success ||
+            vk!.CreateFence(device, in fenceInfo, null, out inFlightFence) != Result.Success)
+        {
+            throw new Exception("Failed to create synchronization objects!");
+        }
+    }
+
+    private void DrawFrame(double delta)
+    {
+        vk!.WaitForFences(device, 1, ref inFlightFence, Vk.True, ulong.MaxValue);
+
+        vk!.ResetFences(device, 1, ref inFlightFence);
+
+        uint imageIndex = 0;
+        khrSwapChain!.AcquireNextImage(device, swapChain, ulong.MaxValue, imageAvailableSemaphore, default, ref imageIndex);
+
+        vk!.ResetCommandBuffer(commandBuffer, CommandBufferResetFlags.None);
+        RecordCommandBuffer(commandBuffer, imageIndex);
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+        };
+        
+        var waitSemaphores = stackalloc[] { imageAvailableSemaphore };
+        var waitStages = stackalloc[] {PipelineStageFlags.ColorAttachmentOutputBit};
+        var buffer = commandBuffer;
+
+        submitInfo = submitInfo with 
+        {
+            WaitSemaphoreCount = 1,
+            PWaitSemaphores = waitSemaphores,
+            PWaitDstStageMask = waitStages,
+            CommandBufferCount = 1,
+            PCommandBuffers = &buffer
+        };
+
+        var signalSemaphores = stackalloc[] { renderFinishedSemaphore };
+        submitInfo = submitInfo with 
+        {
+            SignalSemaphoreCount = 1,
+            PSignalSemaphores = signalSemaphores
+        };
+
+        if (vk!.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFence) != Result.Success)
+        {
+            throw new Exception("Failed to submit draw command buffer!");
+        }
+
+        var swapChains = stackalloc[] { swapChain };
+        PresentInfoKHR presentInfo = new()
+        {
+            SType = StructureType.PresentInfoKhr,
+            WaitSemaphoreCount = 1,
+            PWaitSemaphores = signalSemaphores,
+            SwapchainCount = 1,
+            PSwapchains = swapChains,
+            PImageIndices = &imageIndex
+        };
+
+        khrSwapChain.QueuePresent(presentQueue, in presentInfo);
     }
 
     private ShaderModule CreateShaderModule(byte[] code)
@@ -905,7 +1005,7 @@ unsafe class MGSVRenderingApp
                 indices.GraphicsFamily = i;
             }
 
-            khrSurface!.GetPhysicalDeviceSurfaceSupport(physicalDevice, i, surface, out var presentSupport);
+            khrSurface!.GetPhysicalDeviceSurfaceSupport(device, i, surface, out var presentSupport);
 
             if (presentSupport)
             {
