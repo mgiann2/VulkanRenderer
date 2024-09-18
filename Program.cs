@@ -32,8 +32,10 @@ struct SwapChainSupportDetails
 
 unsafe class MGSVRenderingApp
 {
-    const int WIDTH = 1920;
-    const int HEIGHT = 1080;
+    const int MaxFramesInFlight = 2;
+
+    const int Width = 1920;
+    const int Height = 1080;
 
     bool EnableValidationLayers = true;
 
@@ -78,11 +80,12 @@ unsafe class MGSVRenderingApp
     private Pipeline graphicsPipeline;
 
     private CommandPool commandPool;
-    private CommandBuffer commandBuffer;
+    private CommandBuffer[]? commandBuffers;
 
-    private Semaphore imageAvailableSemaphore;
-    private Semaphore renderFinishedSemaphore;
-    private Fence inFlightFence;
+    private Semaphore[]? imageAvailableSemaphores;
+    private Semaphore[]? renderFinishedSemaphores;
+    private Fence[]? inFlightFences;
+    private uint currentFrame = 0;
 
     public void Run()
     {
@@ -97,7 +100,7 @@ unsafe class MGSVRenderingApp
         // create window
         var options = WindowOptions.DefaultVulkan with
         {
-            Size = new Vector2D<int>(WIDTH, HEIGHT),
+            Size = new Vector2D<int>(Width, Height),
             Title = "MGSV Renderer"
         };
 
@@ -123,7 +126,7 @@ unsafe class MGSVRenderingApp
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
-        CreateCommandBuffer();
+        CreateCommandBuffers();
         CreateSyncObjects();
     }
 
@@ -136,9 +139,12 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
-        vk!.DestroySemaphore(device, imageAvailableSemaphore, null);
-        vk!.DestroySemaphore(device, renderFinishedSemaphore, null);
-        vk!.DestroyFence(device, inFlightFence, null);
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            vk!.DestroySemaphore(device, imageAvailableSemaphores![i], null);
+            vk!.DestroySemaphore(device, renderFinishedSemaphores![i], null);
+            vk!.DestroyFence(device, inFlightFences![i], null);
+        }
 
         vk!.DestroyCommandPool(device, commandPool, null);
 
@@ -700,19 +706,24 @@ unsafe class MGSVRenderingApp
         }
     }
 
-    private void CreateCommandBuffer()
+    private void CreateCommandBuffers()
     {
+        commandBuffers = new CommandBuffer[MaxFramesInFlight];
+
         CommandBufferAllocateInfo allocInfo = new()
         {
             SType = StructureType.CommandBufferAllocateInfo,
             CommandPool = commandPool,
             Level = CommandBufferLevel.Primary,
-            CommandBufferCount = 1
+            CommandBufferCount = (uint) commandBuffers.Length
         };
 
-        if (vk!.AllocateCommandBuffers(device, in allocInfo, out commandBuffer) != Result.Success)
+        fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
         {
-            throw new Exception("Failed to allocate command buffers!");
+            if (vk!.AllocateCommandBuffers(device, in allocInfo, commandBuffersPtr) != Result.Success)
+            {
+                throw new Exception("Failed to allocate command buffers!");
+            }
         }
     }
 
@@ -764,6 +775,10 @@ unsafe class MGSVRenderingApp
 
     private void CreateSyncObjects()
     {
+        imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
+        renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
+        inFlightFences = new Fence[MaxFramesInFlight];
+
         SemaphoreCreateInfo semaphoreInfo = new()
         {
             SType = StructureType.SemaphoreCreateInfo
@@ -775,34 +790,37 @@ unsafe class MGSVRenderingApp
             Flags = FenceCreateFlags.SignaledBit
         };
 
-        if (vk!.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphore) != Result.Success ||
-            vk!.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphore) != Result.Success ||
-            vk!.CreateFence(device, in fenceInfo, null, out inFlightFence) != Result.Success)
+        for (int i = 0; i < MaxFramesInFlight; i++)
         {
-            throw new Exception("Failed to create synchronization objects!");
+            if (vk!.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphores[i]) != Result.Success ||
+                vk!.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphores[i]) != Result.Success ||
+                vk!.CreateFence(device, in fenceInfo, null, out inFlightFences[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create synchronization objects!");
+            }
         }
     }
 
     private void DrawFrame(double delta)
     {
-        vk!.WaitForFences(device, 1, ref inFlightFence, Vk.True, ulong.MaxValue);
+        vk!.WaitForFences(device, 1, ref inFlightFences![currentFrame], Vk.True, ulong.MaxValue);
 
-        vk!.ResetFences(device, 1, ref inFlightFence);
+        vk!.ResetFences(device, 1, ref inFlightFences![currentFrame]);
 
         uint imageIndex = 0;
-        khrSwapChain!.AcquireNextImage(device, swapChain, ulong.MaxValue, imageAvailableSemaphore, default, ref imageIndex);
+        khrSwapChain!.AcquireNextImage(device, swapChain, ulong.MaxValue, imageAvailableSemaphores![currentFrame], default, ref imageIndex);
 
-        vk!.ResetCommandBuffer(commandBuffer, CommandBufferResetFlags.None);
-        RecordCommandBuffer(commandBuffer, imageIndex);
+        vk!.ResetCommandBuffer(commandBuffers![currentFrame], CommandBufferResetFlags.None);
+        RecordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
         SubmitInfo submitInfo = new()
         {
             SType = StructureType.SubmitInfo,
         };
         
-        var waitSemaphores = stackalloc[] { imageAvailableSemaphore };
+        var waitSemaphores = stackalloc[] { imageAvailableSemaphores![currentFrame] };
         var waitStages = stackalloc[] {PipelineStageFlags.ColorAttachmentOutputBit};
-        var buffer = commandBuffer;
+        var buffer = commandBuffers[currentFrame];
 
         submitInfo = submitInfo with 
         {
@@ -813,14 +831,14 @@ unsafe class MGSVRenderingApp
             PCommandBuffers = &buffer
         };
 
-        var signalSemaphores = stackalloc[] { renderFinishedSemaphore };
+        var signalSemaphores = stackalloc[] { renderFinishedSemaphores![currentFrame] };
         submitInfo = submitInfo with 
         {
             SignalSemaphoreCount = 1,
             PSignalSemaphores = signalSemaphores
         };
 
-        if (vk!.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFence) != Result.Success)
+        if (vk!.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
         {
             throw new Exception("Failed to submit draw command buffer!");
         }
@@ -837,6 +855,7 @@ unsafe class MGSVRenderingApp
         };
 
         khrSwapChain.QueuePresent(presentQueue, in presentInfo);
+        currentFrame = (currentFrame + 1) % MaxFramesInFlight;
     }
 
     private ShaderModule CreateShaderModule(byte[] code)
