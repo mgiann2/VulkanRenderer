@@ -85,7 +85,10 @@ unsafe class MGSVRenderingApp
     private Semaphore[]? imageAvailableSemaphores;
     private Semaphore[]? renderFinishedSemaphores;
     private Fence[]? inFlightFences;
+    private Fence[]? imagesInFlight;
     private uint currentFrame = 0;
+
+    private bool framebufferResized = false;
 
     public void Run()
     {
@@ -111,6 +114,8 @@ unsafe class MGSVRenderingApp
         {
             throw new Exception("Windowing platform doesn't support Vulkan");
         }
+
+        window.FramebufferResize += FramebufferResizeCallback;
     }
 
     private void InitVulkan()
@@ -139,6 +144,8 @@ unsafe class MGSVRenderingApp
 
     private void CleanUp()
     {
+        CleanUpSwapChains();
+
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
             vk!.DestroySemaphore(device, imageAvailableSemaphores![i], null);
@@ -148,21 +155,6 @@ unsafe class MGSVRenderingApp
 
         vk!.DestroyCommandPool(device, commandPool, null);
 
-        foreach (var framebuffer in swapChainFramebuffers!)
-        {
-            vk!.DestroyFramebuffer(device, framebuffer, null);
-        }
-
-        vk!.DestroyPipeline(device, graphicsPipeline, null);
-        vk!.DestroyPipelineLayout(device, pipelineLayout, null);
-        vk!.DestroyRenderPass(device, renderPass, null);
-
-        foreach (var imageView in swapChainImageViews!)
-        {
-            vk!.DestroyImageView(device, imageView, null);
-        }
-
-        khrSwapChain!.DestroySwapchain(device, swapChain, null);
         vk!.DestroyDevice(device, null);
 
         if (EnableValidationLayers)
@@ -424,6 +416,54 @@ unsafe class MGSVRenderingApp
 
         swapChainImageFormat = surfaceFormat.Format;
         swapChainExtent = extent;
+    }
+
+    private void RecreateSwapChain()
+    {
+        Vector2D<int> framebufferSize = window!.FramebufferSize;
+
+        while (framebufferSize.X == 0 || framebufferSize.Y == 0)
+        {
+            framebufferSize = window.FramebufferSize;
+            window.DoEvents();
+        }
+
+        vk!.DeviceWaitIdle(device);
+
+        CleanUpSwapChains();
+
+        CreateSwapChain();
+        CreateImageViews();
+        CreateRenderPass();
+        CreateGraphicsPipeline();
+        CreateFramebuffers();
+        CreateCommandBuffers();
+
+        imagesInFlight = new Fence[swapChainImages!.Length];
+    }
+
+    private void CleanUpSwapChains()
+    {
+        foreach (var framebuffer in swapChainFramebuffers!)
+        {
+            vk!.DestroyFramebuffer(device, framebuffer, null);
+        }
+
+        fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
+        {
+            vk!.FreeCommandBuffers(device, commandPool, (uint) commandBuffers!.Length, commandBuffersPtr);
+        }
+
+        vk!.DestroyPipeline(device, graphicsPipeline, null);
+        vk!.DestroyPipelineLayout(device, pipelineLayout, null);
+        vk!.DestroyRenderPass(device, renderPass, null);
+
+        foreach (var imageView in swapChainImageViews!)
+        {
+            vk!.DestroyImageView(device, imageView, null);
+        }
+
+        khrSwapChain!.DestroySwapchain(device, swapChain, null);
     }
 
     private void CreateImageViews()
@@ -778,6 +818,7 @@ unsafe class MGSVRenderingApp
         imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
         renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
         inFlightFences = new Fence[MaxFramesInFlight];
+        imagesInFlight = new Fence[swapChainImages!.Length];
 
         SemaphoreCreateInfo semaphoreInfo = new()
         {
@@ -805,10 +846,25 @@ unsafe class MGSVRenderingApp
     {
         vk!.WaitForFences(device, 1, ref inFlightFences![currentFrame], Vk.True, ulong.MaxValue);
 
-        vk!.ResetFences(device, 1, ref inFlightFences![currentFrame]);
-
         uint imageIndex = 0;
-        khrSwapChain!.AcquireNextImage(device, swapChain, ulong.MaxValue, imageAvailableSemaphores![currentFrame], default, ref imageIndex);
+        Result result = khrSwapChain!.AcquireNextImage(device, swapChain, ulong.MaxValue, imageAvailableSemaphores![currentFrame], default, ref imageIndex);
+        if (result == Result.ErrorOutOfDateKhr)
+        {
+            RecreateSwapChain();
+        }
+        else if (result != Result.Success && result != Result.SuboptimalKhr)
+        {
+            throw new Exception("Failed to acquire swap chain image!");
+        }
+
+        if (imagesInFlight![imageIndex].Handle != default)
+        {
+            vk!.WaitForFences(device, 1, ref imagesInFlight[imageIndex], true, ulong.MaxValue);
+        }
+        imagesInFlight[imageIndex] = inFlightFences[currentFrame];
+
+        // Only reset fence if we are submitting work
+        vk!.ResetFences(device, 1, ref inFlightFences![currentFrame]);
 
         vk!.ResetCommandBuffer(commandBuffers![currentFrame], CommandBufferResetFlags.None);
         RecordCommandBuffer(commandBuffers[currentFrame], imageIndex);
@@ -854,7 +910,16 @@ unsafe class MGSVRenderingApp
             PImageIndices = &imageIndex
         };
 
-        khrSwapChain.QueuePresent(presentQueue, in presentInfo);
+        result = khrSwapChain.QueuePresent(presentQueue, in presentInfo);
+        if (result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || framebufferResized)
+        {
+            RecreateSwapChain();
+        }
+        else if (result != Result.Success)
+        {
+            throw new Exception("Failed to present swap chain image!");
+        }
+
         currentFrame = (currentFrame + 1) % MaxFramesInFlight;
     }
 
@@ -1068,6 +1133,11 @@ unsafe class MGSVRenderingApp
         var availableLayerNames = availableLayers.Select(layer => Marshal.PtrToStringAnsi((IntPtr)layer.LayerName)).ToHashSet();
 
         return validationLayers.All(availableLayerNames.Contains);
+    }
+
+    private void FramebufferResizeCallback(Vector2D<int> newSize)
+    {
+        framebufferResized = true;
     }
 
     private uint DebugCallback(
