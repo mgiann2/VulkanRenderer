@@ -808,48 +808,103 @@ unsafe class MGSVRenderingApp
         }
     }
 
-    private void CreateVertexBuffer()
+    private void CreateBuffer(ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, ref Buffer buffer, ref DeviceMemory bufferMemory)
     {
         BufferCreateInfo bufferInfo = new()
         {
             SType = StructureType.BufferCreateInfo,
-            Size = (ulong)(sizeof(Vertex) * vertices.Length),
-            Usage = BufferUsageFlags.VertexBufferBit,
+            Size = size,
+            Usage = usage,
             SharingMode = SharingMode.Exclusive
         };
 
-        fixed (Buffer* vertexBufferPtr = &vertexBuffer)
+        fixed (Buffer* bufferPtr = &buffer)
         {
-            if (vk!.CreateBuffer(device, in bufferInfo, null, vertexBufferPtr) != Result.Success)
+            if (vk!.CreateBuffer(device, in bufferInfo, null, bufferPtr) != Result.Success)
             {
                 throw new Exception("Failed to create vertex buffer!");
             }
         }
 
         MemoryRequirements memRequirements = new();
-        vk!.GetBufferMemoryRequirements(device, vertexBuffer, out memRequirements);
+        vk!.GetBufferMemoryRequirements(device, buffer, out memRequirements);
 
         MemoryAllocateInfo allocateInfo = new()
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit)
+            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits, properties)
         };
 
-        fixed (DeviceMemory* vertexBufferMemoryPtr = &vertexBufferMemory)
+        fixed (DeviceMemory* bufferMemoryPtr = &bufferMemory)
         {
-            if (vk!.AllocateMemory(device, in allocateInfo, null, vertexBufferMemoryPtr) != Result.Success)
+            if (vk!.AllocateMemory(device, in allocateInfo, null, bufferMemoryPtr) != Result.Success)
             {
                 throw new Exception("Failed to allocate vertex buffer memory!");
             }
         }
 
-        vk!.BindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+        vk!.BindBufferMemory(device, buffer, bufferMemory, 0);
+    }
+
+    private void CreateVertexBuffer()
+    {
+        ulong bufferSize = (ulong)(Unsafe.SizeOf<Vertex>() * vertices.Length);
+
+        Buffer stagingBuffer = default;
+        DeviceMemory stagingBufferMemory = default;
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit, ref stagingBuffer, ref stagingBufferMemory);
 
         void* data;
-        vk!.MapMemory(device, vertexBufferMemory, 0, bufferInfo.Size, 0, &data);
+        vk!.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
         vertices.AsSpan().CopyTo(new Span<Vertex>(data, vertices.Length));
-        vk!.UnmapMemory(device, vertexBufferMemory);
+        vk!.UnmapMemory(device, stagingBufferMemory);
+
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit, MemoryPropertyFlags.DeviceLocalBit, ref vertexBuffer, ref vertexBufferMemory);
+
+        CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+        vk!.DestroyBuffer(device, stagingBuffer, null);
+        vk!.FreeMemory(device, stagingBufferMemory, null);
+    }
+
+    private void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
+    {
+        CommandBufferAllocateInfo allocateInfo = new()
+        {
+            SType = StructureType.CommandBufferAllocateInfo,
+            Level = CommandBufferLevel.Primary,
+            CommandPool = commandPool,
+            CommandBufferCount = 1
+        };
+
+        vk!.AllocateCommandBuffers(device, in allocateInfo, out CommandBuffer commandBuffer);
+
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+            Flags = CommandBufferUsageFlags.OneTimeSubmitBit
+        };
+
+        vk!.BeginCommandBuffer(commandBuffer, in beginInfo);
+
+        BufferCopy copyRegion = new(){ Size = size };
+
+        vk!.CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, in copyRegion);
+
+        vk!.EndCommandBuffer(commandBuffer);
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+            CommandBufferCount = 1,
+            PCommandBuffers = &commandBuffer
+        };
+
+        vk!.QueueSubmit(graphicsQueue, 1, in submitInfo, default);
+        vk!.QueueWaitIdle(graphicsQueue);
+
+        vk!.FreeCommandBuffers(device, commandPool, 1, in commandBuffer);
     }
 
     private uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
