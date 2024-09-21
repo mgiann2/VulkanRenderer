@@ -126,6 +126,8 @@ unsafe class MGSVRenderingApp
 
     private Buffer vertexBuffer;
     private DeviceMemory vertexBufferMemory;
+    private Buffer indexBuffer;
+    private DeviceMemory indexBufferMemory;
 
     private Semaphore[]? imageAvailableSemaphores;
     private Semaphore[]? renderFinishedSemaphores;
@@ -137,9 +139,15 @@ unsafe class MGSVRenderingApp
 
     private Vertex[] vertices = new Vertex[]
     {
-        new Vertex { pos = new Vector2D<float>(0.0f,-0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f) },
-        new Vertex { pos = new Vector2D<float>(0.5f,0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f) },
-        new Vertex { pos = new Vector2D<float>(-0.5f,0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f) },
+        new Vertex { pos = new Vector2D<float>(-0.5f,-0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f) },
+        new Vertex { pos = new Vector2D<float>(0.5f,-0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f) },
+        new Vertex { pos = new Vector2D<float>(0.5f,0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f) },
+        new Vertex { pos = new Vector2D<float>(-0.5f,0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f) },
+    };
+
+    private ushort[] indices = new ushort[]
+    {
+        0, 1, 2, 2, 3, 0
     };
 
     public void Run()
@@ -184,6 +192,7 @@ unsafe class MGSVRenderingApp
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
+        CreateIndexBuffer();
         CreateCommandBuffers();
         CreateSyncObjects();
     }
@@ -198,6 +207,9 @@ unsafe class MGSVRenderingApp
     private void CleanUp()
     {
         CleanUpSwapChains();
+
+        vk!.DestroyBuffer(device, indexBuffer, null);
+        vk!.FreeMemory(device, indexBufferMemory, null);
 
         vk!.DestroyBuffer(device, vertexBuffer, null);
         vk!.FreeMemory(device, vertexBufferMemory, null);
@@ -868,6 +880,27 @@ unsafe class MGSVRenderingApp
         vk!.FreeMemory(device, stagingBufferMemory, null);
     }
 
+    private void CreateIndexBuffer()
+    {
+        ulong bufferSize = (ulong)(Unsafe.SizeOf<ushort>() * indices.Length);
+
+        Buffer stagingBuffer = default;
+        DeviceMemory stagingBufferMemory = default;
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit, ref stagingBuffer, ref stagingBufferMemory);
+
+        void* data;
+        vk!.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        indices.AsSpan().CopyTo(new Span<ushort>(data, indices.Length));
+        vk!.UnmapMemory(device, stagingBufferMemory);
+
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit, MemoryPropertyFlags.DeviceLocalBit, ref indexBuffer, ref indexBufferMemory);
+
+        CopyBuffer(stagingBuffer, indexBuffer, bufferSize);
+
+        vk!.DestroyBuffer(device, stagingBuffer, null);
+        vk!.FreeMemory(device, stagingBufferMemory, null);
+    }
+
     private void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
     {
         CommandBufferAllocateInfo allocateInfo = new()
@@ -988,7 +1021,9 @@ unsafe class MGSVRenderingApp
             vk!.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersPtr, offsetsPtr);
         }
 
-        vk!.CmdDraw(commandBuffer, (uint) vertices.Length, 1, 0, 0);
+        vk!.CmdBindIndexBuffer(commandBuffer, indexBuffer, 0, IndexType.Uint16);
+
+        vk!.CmdDrawIndexed(commandBuffer, (uint) indices.Length, 1, 0, 0, 0);
 
         vk!.CmdEndRenderPass(commandBuffer);
 
