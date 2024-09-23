@@ -72,6 +72,13 @@ struct Vertex
     }
 }
 
+struct UniformBufferObject
+{
+    public Matrix4X4<float> model;
+    public Matrix4X4<float> view;
+    public Matrix4X4<float> proj;
+}
+
 unsafe class MGSVRenderingApp
 {
     const int MaxFramesInFlight = 2;
@@ -118,6 +125,7 @@ unsafe class MGSVRenderingApp
     private Framebuffer[]? swapChainFramebuffers;
 
     private RenderPass renderPass;
+    private DescriptorSetLayout descriptorSetLayout;
     private PipelineLayout pipelineLayout;
     private Pipeline graphicsPipeline;
 
@@ -128,6 +136,12 @@ unsafe class MGSVRenderingApp
     private DeviceMemory vertexBufferMemory;
     private Buffer indexBuffer;
     private DeviceMemory indexBufferMemory;
+
+    private Buffer[]? uniformBuffers;
+    private DeviceMemory[]? uniformBuffersMemory;
+
+    private DescriptorPool descriptorPool;
+    private DescriptorSet[]? descriptorSets;
 
     private Semaphore[]? imageAvailableSemaphores;
     private Semaphore[]? renderFinishedSemaphores;
@@ -188,11 +202,15 @@ unsafe class MGSVRenderingApp
         CreateSwapChain();
         CreateImageViews();
         CreateRenderPass();
+        CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
         CreateFramebuffers();
         CreateCommandPool();
         CreateVertexBuffer();
         CreateIndexBuffer();
+        CreateUniformBuffers();
+        CreateDescriptorPool();
+        CreateDescriptorSets();
         CreateCommandBuffers();
         CreateSyncObjects();
     }
@@ -207,6 +225,16 @@ unsafe class MGSVRenderingApp
     private void CleanUp()
     {
         CleanUpSwapChains();
+
+        for (int i = 0; i < swapChainImages!.Length; i++)
+        {
+            vk!.DestroyBuffer(device, uniformBuffers![i], null);
+            vk!.FreeMemory(device, uniformBuffersMemory![i], null);
+        }
+
+        vk!.DestroyDescriptorPool(device, descriptorPool, null);
+
+        vk!.DestroyDescriptorSetLayout(device, descriptorSetLayout, null);
 
         vk!.DestroyBuffer(device, indexBuffer, null);
         vk!.FreeMemory(device, indexBufferMemory, null);
@@ -620,6 +648,33 @@ unsafe class MGSVRenderingApp
         }
     }
 
+    private void CreateDescriptorSetLayout()
+    {
+        DescriptorSetLayoutBinding uboLayoutBinding = new()
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.UniformBuffer,
+            DescriptorCount = 1,
+            PImmutableSamplers = null,
+            StageFlags = ShaderStageFlags.VertexBit
+        };
+
+        DescriptorSetLayoutCreateInfo layoutInfo = new()
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &uboLayoutBinding
+        };
+
+        fixed (DescriptorSetLayout* descriptorSetLayoutPtr = &descriptorSetLayout)
+        {
+            if (vk!.CreateDescriptorSetLayout(device, in layoutInfo, null, descriptorSetLayoutPtr) != Result.Success)
+            {
+                throw new Exception("Failed to create descriptor set layout!");
+            }
+        }
+    }
+
     private void CreateGraphicsPipeline()
     {
         var vertShaderCode = File.ReadAllBytes("shaders/vert.spv");
@@ -654,6 +709,7 @@ unsafe class MGSVRenderingApp
         var attributeDescriptions = Vertex.GetAttributeDescriptions();
 
         fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
+        fixed (DescriptorSetLayout* descriptorSetLayoutPtr = &descriptorSetLayout)
         {
             PipelineVertexInputStateCreateInfo vertexInputInfo = new()
             {
@@ -704,7 +760,7 @@ unsafe class MGSVRenderingApp
                 PolygonMode = PolygonMode.Fill,
                 LineWidth = 1.0f,
                 CullMode = CullModeFlags.BackBit,
-                FrontFace = FrontFace.Clockwise,
+                FrontFace = FrontFace.CounterClockwise,
                 DepthBiasEnable = Vk.False,
             };
 
@@ -738,7 +794,8 @@ unsafe class MGSVRenderingApp
             PipelineLayoutCreateInfo pipelineLayoutInfo = new()
             {
                 SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = 0,
+                SetLayoutCount = 1,
+                PSetLayouts = descriptorSetLayoutPtr,
                 PushConstantRangeCount = 0
             };
 
@@ -901,6 +958,93 @@ unsafe class MGSVRenderingApp
         vk!.FreeMemory(device, stagingBufferMemory, null);
     }
 
+    private void CreateUniformBuffers()
+    {
+        ulong bufferSize = (ulong) Unsafe.SizeOf<UniformBufferObject>();
+
+        uniformBuffers = new Buffer[swapChainImages!.Length];
+        uniformBuffersMemory = new DeviceMemory[swapChainImages!.Length];
+
+        for (int i = 0; i < swapChainImages!.Length; i++)
+        {
+            CreateBuffer(bufferSize, BufferUsageFlags.UniformBufferBit, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit, ref uniformBuffers[i], ref uniformBuffersMemory[i]);
+        }
+    }
+
+    private void CreateDescriptorPool()
+    {
+        DescriptorPoolSize poolSize = new()
+        {
+            Type = DescriptorType.UniformBuffer,
+            DescriptorCount = (uint) swapChainImages!.Length
+        };
+
+        DescriptorPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &poolSize,
+            MaxSets = (uint) swapChainImages.Length
+        };
+
+        fixed (DescriptorPool* descriptorPoolPtr = &descriptorPool)
+        {
+            if (vk!.CreateDescriptorPool(device, in poolInfo, null, descriptorPoolPtr) != Result.Success)
+            {
+                throw new Exception("Failed to create descriptor pool!");
+            }
+        }
+    }
+
+    private void CreateDescriptorSets()
+    {
+        var layouts = new DescriptorSetLayout[swapChainImages!.Length];
+        Array.Fill(layouts, descriptorSetLayout);
+
+        fixed (DescriptorSetLayout* layoutsPtr = layouts)
+        {
+            DescriptorSetAllocateInfo allocateInfo = new()
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = descriptorPool,
+                DescriptorSetCount = (uint) swapChainImages!.Length,
+                PSetLayouts = layoutsPtr
+            };
+
+            descriptorSets = new DescriptorSet[swapChainImages.Length];
+            fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+            {
+                if (vk!.AllocateDescriptorSets(device, in allocateInfo, descriptorSetsPtr) != Result.Success)
+                {
+                    throw new Exception("Failed to allocate descriptor sets!");
+                }
+            }
+        }
+
+        for (int i = 0; i < swapChainImages!.Length; i++)
+        {
+            DescriptorBufferInfo bufferInfo = new()
+            {
+                Buffer = uniformBuffers![i],
+                Offset = 0,
+                Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
+            };
+
+            WriteDescriptorSet descriptorWrite = new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &bufferInfo
+            };
+
+            vk!.UpdateDescriptorSets(device, 1, in descriptorWrite, 0, null);
+        }
+    }
+
     private void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
     {
         CommandBufferAllocateInfo allocateInfo = new()
@@ -1023,6 +1167,10 @@ unsafe class MGSVRenderingApp
 
         vk!.CmdBindIndexBuffer(commandBuffer, indexBuffer, 0, IndexType.Uint16);
 
+        fixed (DescriptorSet* descritorSetPtr = &descriptorSets![currentFrame])
+        {
+            vk!.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, pipelineLayout, 0, 1, descritorSetPtr, 0, null);
+        }
         vk!.CmdDrawIndexed(commandBuffer, (uint) indices.Length, 1, 0, 0, 0);
 
         vk!.CmdEndRenderPass(commandBuffer);
@@ -1062,6 +1210,26 @@ unsafe class MGSVRenderingApp
         }
     }
 
+    private void UpdateUniformBuffer(uint currentImage)
+    {
+        var time = (float)window!.Time;
+
+        UniformBufferObject ubo = new()
+        {
+            model = Matrix4X4<float>.Identity * Matrix4X4.CreateFromAxisAngle<float>(new Vector3D<float>(0, 0, 1), time * Radians(90.0f)),
+            view = Matrix4X4.CreateLookAt(new Vector3D<float>(2, 2, 2), new Vector3D<float>(0, 0, 0), new Vector3D<float>(0, 0, 1)),
+            proj = Matrix4X4.CreatePerspectiveFieldOfView(Radians(45.0f), (float) swapChainExtent.Width / swapChainExtent.Height, 0.1f, 10.0f)
+        };
+        ubo.proj.M22 *= -1;
+
+        void* data;
+        vk!.MapMemory(device, uniformBuffersMemory![currentImage], 0, (ulong)Unsafe.SizeOf<UniformBufferObject>(), 0, &data);
+        new Span<UniformBufferObject>(data, 1)[0] = ubo;
+        vk!.UnmapMemory(device, uniformBuffersMemory![currentImage]);
+
+        static float Radians(float angle) => angle * MathF.PI / 180f;
+    }
+
     private void DrawFrame(double delta)
     {
         vk!.WaitForFences(device, 1, ref inFlightFences![currentFrame], Vk.True, ulong.MaxValue);
@@ -1076,6 +1244,8 @@ unsafe class MGSVRenderingApp
         {
             throw new Exception("Failed to acquire swap chain image!");
         }
+
+        UpdateUniformBuffer(imageIndex);
 
         if (imagesInFlight![imageIndex].Handle != default)
         {
