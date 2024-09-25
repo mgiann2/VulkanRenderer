@@ -36,6 +36,7 @@ struct Vertex
 {
     public Vector2D<float> pos;
     public Vector3D<float> color;
+    public Vector2D<float> texCoord;
 
     public static VertexInputBindingDescription GetBindingDescription()
     {
@@ -66,6 +67,13 @@ struct Vertex
                 Location = 1,
                 Format = Format.R32G32B32Sfloat,
                 Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(color))
+            },
+            new VertexInputAttributeDescription()
+            {
+                Binding = 0,
+                Location = 2,
+                Format = Format.R32G32Sfloat,
+                Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(texCoord))
             }
         };
 
@@ -135,6 +143,8 @@ unsafe class MGSVRenderingApp
 
     private Image textureImage;
     private DeviceMemory textureImageMemory;
+    private ImageView textureImageView;
+    Sampler textureSampler;
 
     private Buffer vertexBuffer;
     private DeviceMemory vertexBufferMemory;
@@ -157,10 +167,10 @@ unsafe class MGSVRenderingApp
 
     private Vertex[] vertices = new Vertex[]
     {
-        new Vertex { pos = new Vector2D<float>(-0.5f,-0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f) },
-        new Vertex { pos = new Vector2D<float>(0.5f,-0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f) },
-        new Vertex { pos = new Vector2D<float>(0.5f,0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f) },
-        new Vertex { pos = new Vector2D<float>(-0.5f,0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f) },
+        new Vertex { pos = new Vector2D<float>(-0.5f,-0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
+        new Vertex { pos = new Vector2D<float>(0.5f,-0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
+        new Vertex { pos = new Vector2D<float>(0.5f,0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
+        new Vertex { pos = new Vector2D<float>(-0.5f,0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
     };
 
     private ushort[] indices = new ushort[]
@@ -211,6 +221,8 @@ unsafe class MGSVRenderingApp
         CreateFramebuffers();
         CreateCommandPool();
         CreateTextureImage();
+        CreateTextureImageView();
+        CreateTextureSampler();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
@@ -230,6 +242,9 @@ unsafe class MGSVRenderingApp
     private void CleanUp()
     {
         CleanUpSwapChains();
+
+        vk!.DestroySampler(device, textureSampler, null);
+        vk!.DestroyImageView(device, textureImageView, null);
 
         vk!.DestroyImage(device, textureImage, null);
         vk!.FreeMemory(device, textureImageMemory, null);
@@ -575,31 +590,7 @@ unsafe class MGSVRenderingApp
         swapChainImageViews = new ImageView[swapChainImages!.Length];
 
         for (int i = 0; i < swapChainImages.Length; i++)
-        {
-            ImageViewCreateInfo createInfo = new()
-            {
-                SType = StructureType.ImageViewCreateInfo,
-                Image = swapChainImages[i],
-                ViewType = ImageViewType.Type2D,
-                Format = swapChainImageFormat
-            };
-
-            createInfo.Components.R = ComponentSwizzle.Identity;
-            createInfo.Components.G = ComponentSwizzle.Identity;
-            createInfo.Components.B = ComponentSwizzle.Identity;
-            createInfo.Components.A = ComponentSwizzle.Identity;
-
-            createInfo.SubresourceRange.AspectMask = ImageAspectFlags.ColorBit;
-            createInfo.SubresourceRange.BaseMipLevel = 0;
-            createInfo.SubresourceRange.LevelCount = 1;
-            createInfo.SubresourceRange.BaseArrayLayer = 0;
-            createInfo.SubresourceRange.LayerCount = 1;
-
-            if (vk!.CreateImageView(device, in createInfo, null, out swapChainImageViews[i]) != Result.Success)
-            {
-                throw new Exception("Failed to create image views!");
-            }
-        }
+            swapChainImageViews[i] = CreateImageView(swapChainImages[i], swapChainImageFormat);
     }
 
     private void CreateRenderPass()
@@ -667,15 +658,27 @@ unsafe class MGSVRenderingApp
             StageFlags = ShaderStageFlags.VertexBit
         };
 
-        DescriptorSetLayoutCreateInfo layoutInfo = new()
+        DescriptorSetLayoutBinding samplerLayoutBinding = new()
         {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 1,
-            PBindings = &uboLayoutBinding
+            Binding = 1,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImmutableSamplers = null,
+            StageFlags = ShaderStageFlags.FragmentBit
         };
 
+        DescriptorSetLayoutBinding[] layoutBindings = new[] { uboLayoutBinding, samplerLayoutBinding };
+        
+        fixed (DescriptorSetLayoutBinding* layoutBindingsPtr = layoutBindings)
         fixed (DescriptorSetLayout* descriptorSetLayoutPtr = &descriptorSetLayout)
         {
+            DescriptorSetLayoutCreateInfo layoutInfo = new()
+            {
+                SType = StructureType.DescriptorSetLayoutCreateInfo,
+                BindingCount = (uint) layoutBindings.Length,
+                PBindings = layoutBindingsPtr 
+            };
+
             if (vk!.CreateDescriptorSetLayout(device, in layoutInfo, null, descriptorSetLayoutPtr) != Result.Success)
             {
                 throw new Exception("Failed to create descriptor set layout!");
@@ -915,6 +918,69 @@ unsafe class MGSVRenderingApp
             vk!.DestroyBuffer(device, stagingBuffer, null);
             vk!.FreeMemory(device, stagingBufferMemory, null);
         }
+    }
+
+    private void CreateTextureImageView()
+    {
+        textureImageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb);
+    }
+
+    private void CreateTextureSampler()
+    {
+        PhysicalDeviceProperties properties;
+        vk!.GetPhysicalDeviceProperties(physicalDevice, &properties);
+
+        SamplerCreateInfo samplerInfo = new()
+        {
+            SType = StructureType.SamplerCreateInfo,
+            MagFilter = Filter.Linear,
+            MinFilter = Filter.Linear,
+            AddressModeU = SamplerAddressMode.Repeat,
+            AddressModeV = SamplerAddressMode.Repeat,
+            AddressModeW = SamplerAddressMode.Repeat,
+            AnisotropyEnable = Vk.True,
+            MaxAnisotropy = properties.Limits.MaxSamplerAnisotropy,
+            BorderColor = BorderColor.IntOpaqueBlack,
+            UnnormalizedCoordinates = Vk.False,
+            CompareEnable = Vk.False,
+            CompareOp = CompareOp.Always,
+            MipmapMode = SamplerMipmapMode.Linear,
+            MipLodBias = 0.0f,
+            MinLod = 0.0f,
+            MaxLod = 0.0f
+        };
+        
+        if (vk!.CreateSampler(device, in samplerInfo, null, out textureSampler) != Result.Success)
+        {
+            throw new Exception("Failed to create texture sampler!");
+        }
+    }
+
+    private ImageView CreateImageView(Image image, Format format)
+    {
+        ImageViewCreateInfo viewInfo = new()
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = image,
+            ViewType = ImageViewType.Type2D,
+            Format = format,
+            SubresourceRange = 
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 1
+            }
+        };
+
+        ImageView imageView;
+        if (vk!.CreateImageView(device, in viewInfo, null, out imageView) != Result.Success)
+        {
+            throw new Exception("Failed to create image view!");
+        }
+
+        return imageView;
     }
 
     private void CreateImage(uint width, uint height, Format format, ImageTiling tiling, ImageUsageFlags usage, MemoryPropertyFlags properties, ref Image image, ref DeviceMemory imageMemory)
@@ -1180,22 +1246,23 @@ unsafe class MGSVRenderingApp
 
     private void CreateDescriptorPool()
     {
-        DescriptorPoolSize poolSize = new()
-        {
-            Type = DescriptorType.UniformBuffer,
-            DescriptorCount = (uint) swapChainImages!.Length
-        };
+        DescriptorPoolSize[] poolSizes = new DescriptorPoolSize[2];
+        poolSizes[0].Type = DescriptorType.UniformBuffer;
+        poolSizes[0].DescriptorCount = (uint) swapChainImages!.Length;
+        poolSizes[1].Type = DescriptorType.CombinedImageSampler;
+        poolSizes[1].DescriptorCount = (uint) swapChainImages!.Length;
 
-        DescriptorPoolCreateInfo poolInfo = new()
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            PoolSizeCount = 1,
-            PPoolSizes = &poolSize,
-            MaxSets = (uint) swapChainImages.Length
-        };
-
+        fixed (DescriptorPoolSize* poolSizesPtr = poolSizes)
         fixed (DescriptorPool* descriptorPoolPtr = &descriptorPool)
         {
+            DescriptorPoolCreateInfo poolInfo = new()
+            {
+                SType = StructureType.DescriptorPoolCreateInfo,
+                PoolSizeCount = (uint) poolSizes.Length,
+                PPoolSizes = poolSizesPtr,
+                MaxSets = (uint) swapChainImages.Length
+            };
+
             if (vk!.CreateDescriptorPool(device, in poolInfo, null, descriptorPoolPtr) != Result.Success)
             {
                 throw new Exception("Failed to create descriptor pool!");
@@ -1237,7 +1304,14 @@ unsafe class MGSVRenderingApp
                 Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
             };
 
-            WriteDescriptorSet descriptorWrite = new()
+            DescriptorImageInfo imageInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = textureImageView,
+                Sampler = textureSampler
+            };
+
+            WriteDescriptorSet bufferDescriptorWrite = new()
             {
                 SType = StructureType.WriteDescriptorSet,
                 DstSet = descriptorSets[i],
@@ -1248,7 +1322,21 @@ unsafe class MGSVRenderingApp
                 PBufferInfo = &bufferInfo
             };
 
-            vk!.UpdateDescriptorSets(device, 1, in descriptorWrite, 0, null);
+            WriteDescriptorSet imageDescriptorWrite = new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSets[i],
+                DstBinding = 1,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &imageInfo
+            };
+
+            WriteDescriptorSet[] descriptorWrites = new[] { bufferDescriptorWrite, imageDescriptorWrite };
+
+            fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
+                vk!.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, null);
         }
     }
 
@@ -1617,7 +1705,9 @@ unsafe class MGSVRenderingApp
             swapChainAdequate = swapChainSupport.Formats.Any() && swapChainSupport.PresentModes.Any();
         }
 
-        return indices.IsComplete() && extensionsSupported && swapChainAdequate;
+        vk!.GetPhysicalDeviceFeatures(device, out PhysicalDeviceFeatures supportedFeatures);
+
+        return indices.IsComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.SamplerAnisotropy;
     }
 
     private bool CheckDeviceExtensionSupport(PhysicalDevice device)
