@@ -34,7 +34,7 @@ struct SwapChainSupportDetails
 
 struct Vertex 
 {
-    public Vector2D<float> pos;
+    public Vector3D<float> pos;
     public Vector3D<float> color;
     public Vector2D<float> texCoord;
 
@@ -58,7 +58,7 @@ struct Vertex
             {
                 Binding = 0,
                 Location = 0,
-                Format = Format.R32G32Sfloat,
+                Format = Format.R32G32B32Sfloat,
                 Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(pos))
             },
             new VertexInputAttributeDescription()
@@ -141,6 +141,10 @@ unsafe class MGSVRenderingApp
     private CommandPool commandPool;
     private CommandBuffer[]? commandBuffers;
 
+    private Image depthImage;
+    private DeviceMemory depthImageMemory;
+    private ImageView depthImageView;
+
     private Image textureImage;
     private DeviceMemory textureImageMemory;
     private ImageView textureImageView;
@@ -167,15 +171,21 @@ unsafe class MGSVRenderingApp
 
     private Vertex[] vertices = new Vertex[]
     {
-        new Vertex { pos = new Vector2D<float>(-0.5f,-0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
-        new Vertex { pos = new Vector2D<float>(0.5f,-0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
-        new Vertex { pos = new Vector2D<float>(0.5f,0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
-        new Vertex { pos = new Vector2D<float>(-0.5f,0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
+        new Vertex { pos = new Vector3D<float>(-0.5f,-0.5f, 0.0f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
+        new Vertex { pos = new Vector3D<float>(0.5f,-0.5f, 0.0f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
+        new Vertex { pos = new Vector3D<float>(0.5f,0.5f, 0.0f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
+        new Vertex { pos = new Vector3D<float>(-0.5f,0.5f, 0.0f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
+
+        new Vertex { pos = new Vector3D<float>(-0.5f,-0.5f, -0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
+        new Vertex { pos = new Vector3D<float>(0.5f,-0.5f, -0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
+        new Vertex { pos = new Vector3D<float>(0.5f,0.5f, -0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
+        new Vertex { pos = new Vector3D<float>(-0.5f,0.5f, -0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
     };
 
     private ushort[] indices = new ushort[]
     {
-        0, 1, 2, 2, 3, 0
+        0, 1, 2, 2, 3, 0,
+        4, 5, 6, 6, 7, 4
     };
 
     public void Run()
@@ -218,8 +228,9 @@ unsafe class MGSVRenderingApp
         CreateRenderPass();
         CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
-        CreateFramebuffers();
         CreateCommandPool();
+        CreateDepthResources();
+        CreateFramebuffers();
         CreateTextureImage();
         CreateTextureImageView();
         CreateTextureSampler();
@@ -555,7 +566,11 @@ unsafe class MGSVRenderingApp
         CreateImageViews();
         CreateRenderPass();
         CreateGraphicsPipeline();
+        CreateDepthResources();
         CreateFramebuffers();
+        CreateUniformBuffers();
+        CreateDescriptorPool();
+        CreateDescriptorSets();
         CreateCommandBuffers();
 
         imagesInFlight = new Fence[swapChainImages!.Length];
@@ -563,6 +578,10 @@ unsafe class MGSVRenderingApp
 
     private void CleanUpSwapChains()
     {
+        vk!.DestroyImageView(device, depthImageView, null);
+        vk!.DestroyImage(device, depthImage, null);
+        vk!.FreeMemory(device, depthImageMemory, null);
+
         foreach (var framebuffer in swapChainFramebuffers!)
         {
             vk!.DestroyFramebuffer(device, framebuffer, null);
@@ -583,6 +602,14 @@ unsafe class MGSVRenderingApp
         }
 
         khrSwapChain!.DestroySwapchain(device, swapChain, null);
+
+        for (int i = 0; i < swapChainImages!.Length; i++)
+        {
+            vk!.DestroyBuffer(device, uniformBuffers![i], null);
+            vk!.FreeMemory(device, uniformBuffersMemory![i], null);
+        }
+
+        vk!.DestroyDescriptorPool(device, descriptorPool, null);
     }
 
     private void CreateImageViews()
@@ -590,7 +617,7 @@ unsafe class MGSVRenderingApp
         swapChainImageViews = new ImageView[swapChainImages!.Length];
 
         for (int i = 0; i < swapChainImages.Length; i++)
-            swapChainImageViews[i] = CreateImageView(swapChainImages[i], swapChainImageFormat);
+            swapChainImageViews[i] = CreateImageView(swapChainImages[i], swapChainImageFormat, ImageAspectFlags.ColorBit);
     }
 
     private void CreateRenderPass()
@@ -606,6 +633,18 @@ unsafe class MGSVRenderingApp
             InitialLayout = ImageLayout.Undefined,
             FinalLayout = ImageLayout.PresentSrcKhr
         };
+
+        AttachmentDescription depthAttachment = new()
+        {
+            Format = FindDepthFormat(),
+            Samples = SampleCountFlags.Count1Bit,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.DontCare,
+            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilStoreOp = AttachmentStoreOp.DontCare,
+            InitialLayout = ImageLayout.Undefined,
+            FinalLayout = ImageLayout.DepthStencilAttachmentOptimal
+        };
         
         AttachmentReference colorAttachmentRef = new()
         {
@@ -613,37 +652,49 @@ unsafe class MGSVRenderingApp
             Layout = ImageLayout.ColorAttachmentOptimal
         };
 
+        AttachmentReference depthAttachmentRef = new()
+        {
+            Attachment = 1,
+            Layout = ImageLayout.DepthStencilAttachmentOptimal
+        };
+
         SubpassDescription subpass = new()
         {
             PipelineBindPoint = PipelineBindPoint.Graphics,
             ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachmentRef
+            PColorAttachments = &colorAttachmentRef,
+            PDepthStencilAttachment = &depthAttachmentRef
         };
 
         SubpassDependency dependency = new()
         {
             SrcSubpass = Vk.SubpassExternal,
             DstSubpass = 0,
-            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
-            SrcAccessMask = 0,
-            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
-            DstAccessMask = AccessFlags.ColorAttachmentWriteBit
+            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.LateFragmentTestsBit,
+            SrcAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
+            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
+            DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit
         };
 
-        RenderPassCreateInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassCreateInfo,
-            AttachmentCount = 1,
-            PAttachments = &colorAttachment,
-            SubpassCount = 1,
-            PSubpasses = &subpass,
-            DependencyCount = 1,
-            PDependencies = &dependency
-        };
+        AttachmentDescription[] attachments = new[] { colorAttachment, depthAttachment };
 
-        if (vk!.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
+        fixed (AttachmentDescription* attachmentsPtr = attachments)
         {
-            throw new Exception("Failed to create render pass!");
+            RenderPassCreateInfo renderPassInfo = new()
+            {
+                SType = StructureType.RenderPassCreateInfo,
+                AttachmentCount = (uint) attachments.Length,
+                PAttachments = attachmentsPtr,
+                SubpassCount = 1,
+                PSubpasses = &subpass,
+                DependencyCount = 1,
+                PDependencies = &dependency
+            };
+
+            if (vk!.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
+            {
+                throw new Exception("Failed to create render pass!");
+            }
         }
     }
 
@@ -815,6 +866,16 @@ unsafe class MGSVRenderingApp
                 throw new Exception("Failed to create pipeline layout!");
             }
 
+            PipelineDepthStencilStateCreateInfo depthStencil = new()
+            {
+                SType = StructureType.PipelineDepthStencilStateCreateInfo,
+                DepthTestEnable = Vk.True,
+                DepthWriteEnable = Vk.True,
+                DepthCompareOp = CompareOp.Less,
+                DepthBoundsTestEnable = Vk.False,
+                StencilTestEnable = Vk.False
+            };
+
             GraphicsPipelineCreateInfo pipelineInfo = new()
             {
                 SType = StructureType.GraphicsPipelineCreateInfo,
@@ -826,6 +887,7 @@ unsafe class MGSVRenderingApp
                 PRasterizationState = &rasterizer,
                 PMultisampleState = &multisampling,
                 PColorBlendState = &colorBlending,
+                PDepthStencilState = &depthStencil,
                 Layout = pipelineLayout,
                 RenderPass = renderPass,
                 Subpass = 0,
@@ -851,22 +913,25 @@ unsafe class MGSVRenderingApp
 
         for (int i = 0; i < swapChainImageViews!.Length; i++)
         {
-            var attachment = swapChainImageViews[i];
+            var attachments = new[] { swapChainImageViews[i], depthImageView }; 
 
-            FramebufferCreateInfo framebufferInfo = new()
+            fixed (ImageView* attachmentsPtr = attachments)
             {
-                SType = StructureType.FramebufferCreateInfo,
-                RenderPass = renderPass,
-                AttachmentCount = 1,
-                PAttachments = &attachment,
-                Width = swapChainExtent.Width,
-                Height = swapChainExtent.Height,
-                Layers = 1
-            };
+                FramebufferCreateInfo framebufferInfo = new()
+                {
+                    SType = StructureType.FramebufferCreateInfo,
+                    RenderPass = renderPass,
+                    AttachmentCount = (uint) attachments.Length,
+                    PAttachments = attachmentsPtr,
+                    Width = swapChainExtent.Width,
+                    Height = swapChainExtent.Height,
+                    Layers = 1
+                };
 
-            if (vk!.CreateFramebuffer(device, in framebufferInfo, null, out swapChainFramebuffers[i]) != Result.Success)
-            {
-                throw new Exception("Failed to create framebuffer!");
+                if (vk!.CreateFramebuffer(device, in framebufferInfo, null, out swapChainFramebuffers[i]) != Result.Success)
+                {
+                    throw new Exception("Failed to create framebuffer!");
+                }
             }
         }
     }
@@ -886,6 +951,40 @@ unsafe class MGSVRenderingApp
         {
             throw new Exception("Failed to create command pool!");
         }
+    }
+
+    private void CreateDepthResources()
+    {
+        Format depthFormat = FindDepthFormat();
+
+        CreateImage(swapChainExtent.Width, swapChainExtent.Height, depthFormat, ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit, MemoryPropertyFlags.DeviceLocalBit, ref depthImage, ref depthImageMemory);
+        depthImageView = CreateImageView(depthImage, depthFormat, ImageAspectFlags.DepthBit);
+    }
+
+    private Format FindSupportedFormat(IEnumerable<Format> candidates, ImageTiling tiling, FormatFeatureFlags features)
+    {
+        foreach (var format in candidates)
+        {
+            vk!.GetPhysicalDeviceFormatProperties(physicalDevice, format, out var props);
+
+            if (tiling == ImageTiling.Linear && (props.LinearTilingFeatures & features) == features)
+            {
+                return format;
+            }
+            else if (tiling == ImageTiling.Optimal && (props.OptimalTilingFeatures & features) == features)
+            {
+                return format;
+            }
+        }
+
+        throw new Exception("Failed to find supported format!");
+    }
+
+    private Format FindDepthFormat()
+    {
+        return FindSupportedFormat(new[] { Format.D32Sfloat, Format.D32SfloatS8Uint, Format.D24UnormS8Uint },
+                ImageTiling.Optimal,
+                FormatFeatureFlags.DepthStencilAttachmentBit);
     }
 
     private void CreateTextureImage()
@@ -922,7 +1021,7 @@ unsafe class MGSVRenderingApp
 
     private void CreateTextureImageView()
     {
-        textureImageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb);
+        textureImageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
     }
 
     private void CreateTextureSampler()
@@ -956,7 +1055,7 @@ unsafe class MGSVRenderingApp
         }
     }
 
-    private ImageView CreateImageView(Image image, Format format)
+    private ImageView CreateImageView(Image image, Format format, ImageAspectFlags aspectFlags)
     {
         ImageViewCreateInfo viewInfo = new()
         {
@@ -966,7 +1065,7 @@ unsafe class MGSVRenderingApp
             Format = format,
             SubresourceRange = 
             {
-                AspectMask = ImageAspectFlags.ColorBit,
+                AspectMask = aspectFlags,
                 BaseMipLevel = 0,
                 LevelCount = 1,
                 BaseArrayLayer = 0,
@@ -1410,13 +1509,13 @@ unsafe class MGSVRenderingApp
             }
         };
 
-        ClearValue clearColor = new()
-        {
-            Color = new() { Float32_0 = 0, Float32_1 = 0, Float32_2 = 0, Float32_3 = 1 }
-        };
+        ClearValue[] clearValues = new ClearValue[2];
+        clearValues[0].Color = new() { Float32_0 = 0, Float32_1 = 0, Float32_2 = 0, Float32_3 = 1 };
+        clearValues[1].DepthStencil = new() { Depth = 1.0f, Stencil = 0 };
 
-        renderPassInfo.ClearValueCount = 1;
-        renderPassInfo.PClearValues = &clearColor;
+        renderPassInfo.ClearValueCount = (uint) clearValues.Length;
+        fixed (ClearValue* clearValuesPtr = clearValues)
+            renderPassInfo.PClearValues = clearValuesPtr;
 
         vk!.CmdBeginRenderPass(commandBuffer, &renderPassInfo, SubpassContents.Inline);
 
