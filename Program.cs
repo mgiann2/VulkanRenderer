@@ -1,5 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Silk.NET.Assimp;
 using Silk.NET.Core;
 using Silk.NET.Core.Native;
 using Silk.NET.Maths;
@@ -10,6 +11,7 @@ using Silk.NET.Windowing;
 using StbiSharp;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 using Buffer = Silk.NET.Vulkan.Buffer;
+using File = System.IO.File;
 
 var app = new MGSVRenderingApp();
 app.Run();
@@ -95,6 +97,9 @@ unsafe class MGSVRenderingApp
     const int Width = 1920;
     const int Height = 1080;
 
+    const string ModelPath = "models/viking_room.obj";
+    const string TexturePath = "textures/viking_room.png";
+
     bool EnableValidationLayers = true;
 
     private readonly string[] validationLayers = new[]
@@ -150,6 +155,9 @@ unsafe class MGSVRenderingApp
     private ImageView textureImageView;
     Sampler textureSampler;
 
+    private Vertex[]? vertices;
+    private uint[]? indices;
+
     private Buffer vertexBuffer;
     private DeviceMemory vertexBufferMemory;
     private Buffer indexBuffer;
@@ -168,25 +176,6 @@ unsafe class MGSVRenderingApp
     private uint currentFrame = 0;
 
     private bool framebufferResized = false;
-
-    private Vertex[] vertices = new Vertex[]
-    {
-        new Vertex { pos = new Vector3D<float>(-0.5f,-0.5f, 0.0f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
-        new Vertex { pos = new Vector3D<float>(0.5f,-0.5f, 0.0f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
-        new Vertex { pos = new Vector3D<float>(0.5f,0.5f, 0.0f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
-        new Vertex { pos = new Vector3D<float>(-0.5f,0.5f, 0.0f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
-
-        new Vertex { pos = new Vector3D<float>(-0.5f,-0.5f, -0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
-        new Vertex { pos = new Vector3D<float>(0.5f,-0.5f, -0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
-        new Vertex { pos = new Vector3D<float>(0.5f,0.5f, -0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
-        new Vertex { pos = new Vector3D<float>(-0.5f,0.5f, -0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
-    };
-
-    private ushort[] indices = new ushort[]
-    {
-        0, 1, 2, 2, 3, 0,
-        4, 5, 6, 6, 7, 4
-    };
 
     public void Run()
     {
@@ -234,6 +223,7 @@ unsafe class MGSVRenderingApp
         CreateTextureImage();
         CreateTextureImageView();
         CreateTextureSampler();
+        LoadModel();
         CreateVertexBuffer();
         CreateIndexBuffer();
         CreateUniformBuffers();
@@ -426,7 +416,6 @@ unsafe class MGSVRenderingApp
         var queueCreateInfos = (DeviceQueueCreateInfo*)Unsafe.AsPointer(ref mem.GetPinnableReference());
 
         float queuePriority = 1.0f;
-
         for (int i = 0; i < uniqueQueueFamilies.Length; i++)
         {
             queueCreateInfos[i] = new()
@@ -438,7 +427,10 @@ unsafe class MGSVRenderingApp
             };
         }
 
-        PhysicalDeviceFeatures deviceFeatures = new();
+        PhysicalDeviceFeatures deviceFeatures = new()
+        {
+            SamplerAnisotropy = true
+        };
 
         DeviceCreateInfo createInfo = new()
         {
@@ -473,6 +465,8 @@ unsafe class MGSVRenderingApp
         {
             SilkMarshal.Free((nint) createInfo.PpEnabledLayerNames);
         }
+
+        SilkMarshal.Free((nint) createInfo.PpEnabledExtensionNames);
     }
 
     private void CreateSwapChain()
@@ -989,7 +983,7 @@ unsafe class MGSVRenderingApp
 
     private void CreateTextureImage()
     {
-        using (var stream = File.OpenRead("textures/texture.jpg"))
+        using (var stream = File.OpenRead(TexturePath))
         using (var memoryStream = new MemoryStream())
         {
             stream.CopyTo(memoryStream);
@@ -1288,6 +1282,67 @@ unsafe class MGSVRenderingApp
         vk!.FreeCommandBuffers(device, commandPool, 1, in commandBuffer);
     }
 
+    private void LoadModel()
+    {
+        using var assimp = Assimp.GetApi();
+        var scene = assimp.ImportFile(ModelPath, (uint) PostProcessPreset.TargetRealTimeMaximumQuality);
+
+        var vertexMap = new Dictionary<Vertex, uint>();
+        var vertices = new List<Vertex>();
+        var indices = new List<uint>();
+
+        VisitSceneNode(scene->MRootNode);
+
+        assimp.ReleaseImport(scene);
+
+        this.vertices = vertices.ToArray();
+        this.indices = indices.ToArray();
+
+        void VisitSceneNode(Node* node)
+        {
+            for (int m = 0; m < node->MNumMeshes; m++)
+            {
+                var mesh = scene->MMeshes[node->MMeshes[m]];
+
+                for (int f = 0; f < mesh->MNumFaces; f++)
+                {
+                    var face = mesh->MFaces[f];
+
+                    for (int i = 0; i < face.MNumIndices; i++)
+                    {
+                        uint index = face.MIndices[i];
+
+                        var position = mesh->MVertices[index];
+                        var texture = mesh->MTextureCoords[0][(int)index];
+
+                        Vertex vertex = new()
+                        {
+                            pos = new Vector3D<float>(position.X, position.Y, position.Z),
+                            color = new Vector3D<float>(1.0f, 1.0f, 1.0f),
+                            texCoord = new Vector2D<float>(texture.X, 1.0f - texture.Y)
+                        };
+
+                        if (vertexMap.TryGetValue(vertex, out var meshIndex))
+                        {
+                            indices.Add(meshIndex);
+                        }
+                        else
+                        {
+                            indices.Add((uint) vertices.Count);
+                            vertexMap[vertex] = (uint) vertices.Count;
+                            vertices.Add(vertex);
+                        }
+                    }
+                }
+            }
+
+            for (int c = 0; c < node->MNumChildren; c++)
+            {
+                VisitSceneNode(node->MChildren[c]);
+            }
+        }
+    }
+
     private void CreateVertexBuffer()
     {
         ulong bufferSize = (ulong)(Unsafe.SizeOf<Vertex>() * vertices.Length);
@@ -1311,7 +1366,7 @@ unsafe class MGSVRenderingApp
 
     private void CreateIndexBuffer()
     {
-        ulong bufferSize = (ulong)(Unsafe.SizeOf<ushort>() * indices.Length);
+        ulong bufferSize = (ulong)(Unsafe.SizeOf<uint>() * indices!.Length);
 
         Buffer stagingBuffer = default;
         DeviceMemory stagingBufferMemory = default;
@@ -1319,7 +1374,7 @@ unsafe class MGSVRenderingApp
 
         void* data;
         vk!.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        indices.AsSpan().CopyTo(new Span<ushort>(data, indices.Length));
+        indices.AsSpan().CopyTo(new Span<uint>(data, indices.Length));
         vk!.UnmapMemory(device, stagingBufferMemory);
 
         CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit, MemoryPropertyFlags.DeviceLocalBit, ref indexBuffer, ref indexBufferMemory);
@@ -1410,29 +1465,29 @@ unsafe class MGSVRenderingApp
                 Sampler = textureSampler
             };
 
-            WriteDescriptorSet bufferDescriptorWrite = new()
+            var descriptorWrites = new WriteDescriptorSet[]
             {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = descriptorSets[i],
-                DstBinding = 0,
-                DstArrayElement = 0,
-                DescriptorType = DescriptorType.UniformBuffer,
-                DescriptorCount = 1,
-                PBufferInfo = &bufferInfo
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = descriptorSets[i],
+                    DstBinding = 0,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.UniformBuffer,
+                    DescriptorCount = 1,
+                    PBufferInfo = &bufferInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = descriptorSets[i],
+                    DstBinding = 1,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &imageInfo
+                }
             };
-
-            WriteDescriptorSet imageDescriptorWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = descriptorSets[i],
-                DstBinding = 1,
-                DstArrayElement = 0,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                DescriptorCount = 1,
-                PImageInfo = &imageInfo
-            };
-
-            WriteDescriptorSet[] descriptorWrites = new[] { bufferDescriptorWrite, imageDescriptorWrite };
 
             fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
                 vk!.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, null);
@@ -1511,13 +1566,16 @@ unsafe class MGSVRenderingApp
 
         ClearValue[] clearValues = new ClearValue[2];
         clearValues[0].Color = new() { Float32_0 = 0, Float32_1 = 0, Float32_2 = 0, Float32_3 = 1 };
-        clearValues[1].DepthStencil = new() { Depth = 1.0f, Stencil = 0 };
+        clearValues[1].DepthStencil = new() { Depth = 1, Stencil = 0 };
 
-        renderPassInfo.ClearValueCount = (uint) clearValues.Length;
         fixed (ClearValue* clearValuesPtr = clearValues)
+        {
+            renderPassInfo.ClearValueCount = (uint) clearValues.Length;
             renderPassInfo.PClearValues = clearValuesPtr;
 
-        vk!.CmdBeginRenderPass(commandBuffer, &renderPassInfo, SubpassContents.Inline);
+            vk!.CmdBeginRenderPass(commandBuffer, &renderPassInfo, SubpassContents.Inline);
+        }
+
 
         vk!.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, graphicsPipeline);
 
@@ -1530,13 +1588,11 @@ unsafe class MGSVRenderingApp
             vk!.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersPtr, offsetsPtr);
         }
 
-        vk!.CmdBindIndexBuffer(commandBuffer, indexBuffer, 0, IndexType.Uint16);
+        vk!.CmdBindIndexBuffer(commandBuffer, indexBuffer, 0, IndexType.Uint32);
 
-        fixed (DescriptorSet* descritorSetPtr = &descriptorSets![currentFrame])
-        {
-            vk!.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, pipelineLayout, 0, 1, descritorSetPtr, 0, null);
-        }
-        vk!.CmdDrawIndexed(commandBuffer, (uint) indices.Length, 1, 0, 0, 0);
+        vk!.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, pipelineLayout, 0, 1, in descriptorSets![imageIndex], 0, null);
+
+        vk!.CmdDrawIndexed(commandBuffer, (uint) indices!.Length, 1, 0, 0, 0);
 
         vk!.CmdEndRenderPass(commandBuffer);
 
