@@ -150,6 +150,7 @@ unsafe class MGSVRenderingApp
     private DeviceMemory depthImageMemory;
     private ImageView depthImageView;
 
+    private uint mipLevels;
     private Image textureImage;
     private DeviceMemory textureImageMemory;
     private ImageView textureImageView;
@@ -611,7 +612,7 @@ unsafe class MGSVRenderingApp
         swapChainImageViews = new ImageView[swapChainImages!.Length];
 
         for (int i = 0; i < swapChainImages.Length; i++)
-            swapChainImageViews[i] = CreateImageView(swapChainImages[i], swapChainImageFormat, ImageAspectFlags.ColorBit);
+            swapChainImageViews[i] = CreateImageView(swapChainImages[i], swapChainImageFormat, ImageAspectFlags.ColorBit, 1);
     }
 
     private void CreateRenderPass()
@@ -951,8 +952,8 @@ unsafe class MGSVRenderingApp
     {
         Format depthFormat = FindDepthFormat();
 
-        CreateImage(swapChainExtent.Width, swapChainExtent.Height, depthFormat, ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit, MemoryPropertyFlags.DeviceLocalBit, ref depthImage, ref depthImageMemory);
-        depthImageView = CreateImageView(depthImage, depthFormat, ImageAspectFlags.DepthBit);
+        CreateImage(swapChainExtent.Width, swapChainExtent.Height, 1, depthFormat, ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit, MemoryPropertyFlags.DeviceLocalBit, ref depthImage, ref depthImageMemory);
+        depthImageView = CreateImageView(depthImage, depthFormat, ImageAspectFlags.DepthBit, 1);
     }
 
     private Format FindSupportedFormat(IEnumerable<Format> candidates, ImageTiling tiling, FormatFeatureFlags features)
@@ -990,6 +991,7 @@ unsafe class MGSVRenderingApp
             var image = Stbi.LoadFromMemory(memoryStream, 4);
 
             ulong imageSize = (ulong) (image.Width * image.Height * 4);
+            mipLevels = (uint)(Math.Floor(Math.Log2(Math.Max(image.Width, image.Height))) + 1);
 
             Buffer stagingBuffer = default;
             DeviceMemory stagingBufferMemory = default;
@@ -1000,22 +1002,125 @@ unsafe class MGSVRenderingApp
             image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
             vk!.UnmapMemory(device, stagingBufferMemory);
 
-            CreateImage((uint) image.Width, (uint) image.Height, Format.R8G8B8A8Srgb,
-                    ImageTiling.Optimal, ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+            CreateImage((uint) image.Width, (uint) image.Height, mipLevels, Format.R8G8B8A8Srgb,
+                    ImageTiling.Optimal, ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
                     MemoryPropertyFlags.DeviceLocalBit, ref textureImage, ref textureImageMemory);
 
-            TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+            TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal, mipLevels);
             CopyBufferToImage(stagingBuffer, textureImage, (uint) image.Width, (uint) image.Height);
-            TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
 
             vk!.DestroyBuffer(device, stagingBuffer, null);
             vk!.FreeMemory(device, stagingBufferMemory, null);
+
+            GenerateMipmaps(textureImage, Format.R8G8B8A8Srgb, (uint) image.Width, (uint) image.Height, mipLevels);
         }
+    }
+
+    private void GenerateMipmaps(Image image, Format imageFormat, uint texWidth, uint texHeight, uint mipLevels)
+    {
+        vk!.GetPhysicalDeviceFormatProperties(physicalDevice, imageFormat, out var formatProperties);
+
+        if ((formatProperties.OptimalTilingFeatures & FormatFeatureFlags.SampledImageFilterLinearBit) == 0)
+        {
+            throw new Exception("Texture image format does not support linear blitting!");
+        }
+
+        CommandBuffer commandBuffer = BeginSingleTimeCommand();
+
+        ImageMemoryBarrier barrier = new()
+        {
+            SType = StructureType.ImageMemoryBarrier,
+            Image = image,
+            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            SubresourceRange = 
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseArrayLayer = 0,
+                LayerCount = 1,
+                LevelCount = 1
+            }
+        };
+
+        var mipWidth = texWidth;
+        var mipHeight = texHeight;
+
+        for (uint i = 1; i < mipLevels; i++)
+        {
+            barrier.SubresourceRange.BaseMipLevel = i - 1;
+            barrier.OldLayout = ImageLayout.TransferDstOptimal;
+            barrier.NewLayout = ImageLayout.TransferSrcOptimal;
+            barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
+            barrier.DstAccessMask = AccessFlags.TransferReadBit;
+
+            vk!.CmdPipelineBarrier(commandBuffer, PipelineStageFlags.TransferBit, PipelineStageFlags.TransferBit, 0,
+                    0, null,
+                    0, null,
+                    1, in barrier);
+
+            ImageBlit blit = new()
+            {
+                SrcOffsets = 
+                {
+                    Element0 = new Offset3D(0,0,0),
+                    Element1 = new Offset3D((int)mipWidth, (int)mipHeight, 1)
+                },
+                SrcSubresource =
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    MipLevel = i - 1,
+                    BaseArrayLayer = 0,
+                    LayerCount = 1,
+                },
+                DstOffsets = 
+                {
+                    Element0 = new Offset3D(0,0,0),
+                    Element1 = new Offset3D((int)(mipWidth > 1 ? mipWidth / 2 : 1), (int)(mipHeight > 1 ? mipHeight / 2 : 1),1)
+                },
+                DstSubresource = 
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    MipLevel = i,
+                    BaseArrayLayer = 0,
+                    LayerCount = 1
+                }
+            };
+
+            vk!.CmdBlitImage(commandBuffer, image, ImageLayout.TransferSrcOptimal,
+                    image, ImageLayout.TransferDstOptimal,
+                    1, in blit, Filter.Linear);
+
+            barrier.OldLayout = ImageLayout.TransferSrcOptimal;
+            barrier.NewLayout = ImageLayout.ShaderReadOnlyOptimal;
+            barrier.SrcAccessMask = AccessFlags.TransferReadBit;
+            barrier.DstAccessMask = AccessFlags.ShaderReadBit;
+
+            vk!.CmdPipelineBarrier(commandBuffer, PipelineStageFlags.TransferBit, PipelineStageFlags.FragmentShaderBit, 0,
+                    0, null,
+                    0, null,
+                    1, in barrier);
+
+            if (mipWidth > 1) mipWidth /= 2;
+            if (mipHeight > 1) mipHeight /= 2;
+        }
+
+        barrier.SubresourceRange.BaseMipLevel = mipLevels - 1;
+        barrier.OldLayout = ImageLayout.TransferDstOptimal;
+        barrier.NewLayout = ImageLayout.ShaderReadOnlyOptimal;
+        barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
+        barrier.DstAccessMask = AccessFlags.ShaderReadBit;
+
+        vk!.CmdPipelineBarrier(commandBuffer, PipelineStageFlags.TransferBit, PipelineStageFlags.FragmentShaderBit, 0,
+                0, null,
+                0, null,
+                1, in barrier);
+
+        EndSingleTimeCommands(commandBuffer);
     }
 
     private void CreateTextureImageView()
     {
-        textureImageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
+        textureImageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit, mipLevels);
     }
 
     private void CreateTextureSampler()
@@ -1040,7 +1145,7 @@ unsafe class MGSVRenderingApp
             MipmapMode = SamplerMipmapMode.Linear,
             MipLodBias = 0.0f,
             MinLod = 0.0f,
-            MaxLod = 0.0f
+            MaxLod = Vk.LodClampNone
         };
         
         if (vk!.CreateSampler(device, in samplerInfo, null, out textureSampler) != Result.Success)
@@ -1049,7 +1154,7 @@ unsafe class MGSVRenderingApp
         }
     }
 
-    private ImageView CreateImageView(Image image, Format format, ImageAspectFlags aspectFlags)
+    private ImageView CreateImageView(Image image, Format format, ImageAspectFlags aspectFlags, uint mipLevels)
     {
         ImageViewCreateInfo viewInfo = new()
         {
@@ -1061,7 +1166,7 @@ unsafe class MGSVRenderingApp
             {
                 AspectMask = aspectFlags,
                 BaseMipLevel = 0,
-                LevelCount = 1,
+                LevelCount = mipLevels,
                 BaseArrayLayer = 0,
                 LayerCount = 1
             }
@@ -1076,7 +1181,7 @@ unsafe class MGSVRenderingApp
         return imageView;
     }
 
-    private void CreateImage(uint width, uint height, Format format, ImageTiling tiling, ImageUsageFlags usage, MemoryPropertyFlags properties, ref Image image, ref DeviceMemory imageMemory)
+    private void CreateImage(uint width, uint height, uint mipLevels, Format format, ImageTiling tiling, ImageUsageFlags usage, MemoryPropertyFlags properties, ref Image image, ref DeviceMemory imageMemory)
     {
         ImageCreateInfo imageInfo = new()
         {
@@ -1088,7 +1193,7 @@ unsafe class MGSVRenderingApp
                 Height = height,
                 Depth = 1
             },
-            MipLevels = 1,
+            MipLevels = mipLevels,
             ArrayLayers = 1,
             Format = format,
             Tiling = tiling,
@@ -1126,7 +1231,7 @@ unsafe class MGSVRenderingApp
         vk!.BindImageMemory(device, image, imageMemory, 0);
     }
 
-    private void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout)
+    private void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout, uint mipLevels)
     {
         CommandBuffer commandBuffer = BeginSingleTimeCommand();
 
@@ -1142,7 +1247,7 @@ unsafe class MGSVRenderingApp
             {
                 AspectMask = ImageAspectFlags.ColorBit,
                 BaseMipLevel = 0,
-                LevelCount = 1,
+                LevelCount = mipLevels,
                 BaseArrayLayer = 0,
                 LayerCount = 1
             }
@@ -1633,7 +1738,8 @@ unsafe class MGSVRenderingApp
 
     private void UpdateUniformBuffer(uint currentImage)
     {
-        var time = (float)window!.Time;
+        // var time = (float)window!.Time;
+        var time = 0.0f;
 
         UniformBufferObject ubo = new()
         {
