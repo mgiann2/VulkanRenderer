@@ -146,6 +146,10 @@ unsafe class MGSVRenderingApp
     private CommandPool commandPool;
     private CommandBuffer[]? commandBuffers;
 
+    private Image colorImage;
+    private DeviceMemory colorImageMemory;
+    private ImageView colorImageView;
+
     private Image depthImage;
     private DeviceMemory depthImageMemory;
     private ImageView depthImageView;
@@ -175,6 +179,8 @@ unsafe class MGSVRenderingApp
     private Fence[]? inFlightFences;
     private Fence[]? imagesInFlight;
     private uint currentFrame = 0;
+
+    private SampleCountFlags msaaSamples = SampleCountFlags.Count1Bit;
 
     private bool framebufferResized = false;
 
@@ -219,6 +225,7 @@ unsafe class MGSVRenderingApp
         CreateDescriptorSetLayout();
         CreateGraphicsPipeline();
         CreateCommandPool();
+        CreateColorResources();
         CreateDepthResources();
         CreateFramebuffers();
         CreateTextureImage();
@@ -396,6 +403,7 @@ unsafe class MGSVRenderingApp
             if (IsDeviceSuitable(device))
             {
                 physicalDevice = device;
+                msaaSamples = GetMaxUsableSampleCount();
                 break;
             }
         }
@@ -430,7 +438,8 @@ unsafe class MGSVRenderingApp
 
         PhysicalDeviceFeatures deviceFeatures = new()
         {
-            SamplerAnisotropy = true
+            SamplerAnisotropy = true,
+            SampleRateShading = true
         };
 
         DeviceCreateInfo createInfo = new()
@@ -561,6 +570,7 @@ unsafe class MGSVRenderingApp
         CreateImageViews();
         CreateRenderPass();
         CreateGraphicsPipeline();
+        CreateColorResources();
         CreateDepthResources();
         CreateFramebuffers();
         CreateUniformBuffers();
@@ -573,6 +583,10 @@ unsafe class MGSVRenderingApp
 
     private void CleanUpSwapChains()
     {
+        vk!.DestroyImageView(device, colorImageView, null);
+        vk!.DestroyImage(device, colorImage, null);
+        vk!.FreeMemory(device, colorImageMemory, null);
+
         vk!.DestroyImageView(device, depthImageView, null);
         vk!.DestroyImage(device, depthImage, null);
         vk!.FreeMemory(device, depthImageMemory, null);
@@ -620,25 +634,37 @@ unsafe class MGSVRenderingApp
         AttachmentDescription colorAttachment = new()
         {
             Format = swapChainImageFormat,
-            Samples = SampleCountFlags.Count1Bit,
+            Samples = msaaSamples,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
             StencilLoadOp = AttachmentLoadOp.DontCare,
             StencilStoreOp = AttachmentStoreOp.DontCare,
             InitialLayout = ImageLayout.Undefined,
-            FinalLayout = ImageLayout.PresentSrcKhr
+            FinalLayout = ImageLayout.ColorAttachmentOptimal
         };
 
         AttachmentDescription depthAttachment = new()
         {
             Format = FindDepthFormat(),
-            Samples = SampleCountFlags.Count1Bit,
+            Samples = msaaSamples,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.DontCare,
             StencilLoadOp = AttachmentLoadOp.DontCare,
             StencilStoreOp = AttachmentStoreOp.DontCare,
             InitialLayout = ImageLayout.Undefined,
             FinalLayout = ImageLayout.DepthStencilAttachmentOptimal
+        };
+
+        AttachmentDescription colorAttachmentResolve = new()
+        {
+            Format = swapChainImageFormat,
+            Samples = SampleCountFlags.Count1Bit,
+            LoadOp = AttachmentLoadOp.DontCare,
+            StoreOp = AttachmentStoreOp.Store,
+            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilStoreOp = AttachmentStoreOp.DontCare,
+            InitialLayout = ImageLayout.Undefined,
+            FinalLayout = ImageLayout.PresentSrcKhr
         };
         
         AttachmentReference colorAttachmentRef = new()
@@ -653,12 +679,19 @@ unsafe class MGSVRenderingApp
             Layout = ImageLayout.DepthStencilAttachmentOptimal
         };
 
+        AttachmentReference colorAttachmentResolveRef = new()
+        {
+            Attachment = 2,
+            Layout = ImageLayout.ColorAttachmentOptimal
+        };
+
         SubpassDescription subpass = new()
         {
             PipelineBindPoint = PipelineBindPoint.Graphics,
             ColorAttachmentCount = 1,
             PColorAttachments = &colorAttachmentRef,
-            PDepthStencilAttachment = &depthAttachmentRef
+            PDepthStencilAttachment = &depthAttachmentRef,
+            PResolveAttachments = &colorAttachmentResolveRef
         };
 
         SubpassDependency dependency = new()
@@ -666,12 +699,12 @@ unsafe class MGSVRenderingApp
             SrcSubpass = Vk.SubpassExternal,
             DstSubpass = 0,
             SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.LateFragmentTestsBit,
-            SrcAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
+            SrcAccessMask = AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.ColorAttachmentWriteBit,
             DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
             DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit
         };
 
-        AttachmentDescription[] attachments = new[] { colorAttachment, depthAttachment };
+        AttachmentDescription[] attachments = new[] { colorAttachment, depthAttachment, colorAttachmentResolve };
 
         fixed (AttachmentDescription* attachmentsPtr = attachments)
         {
@@ -824,8 +857,9 @@ unsafe class MGSVRenderingApp
             PipelineMultisampleStateCreateInfo multisampling = new()
             {
                 SType = StructureType.PipelineMultisampleStateCreateInfo,
-                SampleShadingEnable = Vk.False,
-                RasterizationSamples = SampleCountFlags.Count1Bit
+                SampleShadingEnable = true,
+                RasterizationSamples = msaaSamples,
+                MinSampleShading = 0.2f
             };
 
             PipelineColorBlendAttachmentState colorBlendAttachment = new()
@@ -908,7 +942,7 @@ unsafe class MGSVRenderingApp
 
         for (int i = 0; i < swapChainImageViews!.Length; i++)
         {
-            var attachments = new[] { swapChainImageViews[i], depthImageView }; 
+            var attachments = new[] { colorImageView, depthImageView, swapChainImageViews[i] }; 
 
             fixed (ImageView* attachmentsPtr = attachments)
             {
@@ -948,11 +982,21 @@ unsafe class MGSVRenderingApp
         }
     }
 
+    private void CreateColorResources()
+    {
+        Format colorFormat = swapChainImageFormat;
+
+        CreateImage(swapChainExtent.Width, swapChainExtent.Height, 1, msaaSamples, colorFormat,
+                ImageTiling.Optimal, ImageUsageFlags.TransientAttachmentBit | ImageUsageFlags.ColorAttachmentBit,
+                MemoryPropertyFlags.DeviceLocalBit, ref colorImage, ref colorImageMemory);
+        colorImageView = CreateImageView(colorImage, colorFormat, ImageAspectFlags.ColorBit, 1);
+    }
+
     private void CreateDepthResources()
     {
         Format depthFormat = FindDepthFormat();
 
-        CreateImage(swapChainExtent.Width, swapChainExtent.Height, 1, depthFormat, ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit, MemoryPropertyFlags.DeviceLocalBit, ref depthImage, ref depthImageMemory);
+        CreateImage(swapChainExtent.Width, swapChainExtent.Height, 1, msaaSamples, depthFormat, ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit, MemoryPropertyFlags.DeviceLocalBit, ref depthImage, ref depthImageMemory);
         depthImageView = CreateImageView(depthImage, depthFormat, ImageAspectFlags.DepthBit, 1);
     }
 
@@ -1002,7 +1046,7 @@ unsafe class MGSVRenderingApp
             image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
             vk!.UnmapMemory(device, stagingBufferMemory);
 
-            CreateImage((uint) image.Width, (uint) image.Height, mipLevels, Format.R8G8B8A8Srgb,
+            CreateImage((uint) image.Width, (uint) image.Height, mipLevels, SampleCountFlags.Count1Bit, Format.R8G8B8A8Srgb,
                     ImageTiling.Optimal, ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
                     MemoryPropertyFlags.DeviceLocalBit, ref textureImage, ref textureImageMemory);
 
@@ -1118,6 +1162,21 @@ unsafe class MGSVRenderingApp
         EndSingleTimeCommands(commandBuffer);
     }
 
+    private SampleCountFlags GetMaxUsableSampleCount()
+    {
+        vk!.GetPhysicalDeviceProperties(physicalDevice, out var physicalDeviceProperties);
+
+        SampleCountFlags counts = physicalDeviceProperties.Limits.FramebufferColorSampleCounts & physicalDeviceProperties.Limits.FramebufferDepthSampleCounts;
+        if ((counts & SampleCountFlags.Count64Bit) != 0) return SampleCountFlags.Count64Bit;
+        if ((counts & SampleCountFlags.Count32Bit) != 0) return SampleCountFlags.Count32Bit;
+        if ((counts & SampleCountFlags.Count16Bit) != 0) return SampleCountFlags.Count16Bit;
+        if ((counts & SampleCountFlags.Count8Bit) != 0) return SampleCountFlags.Count8Bit;
+        if ((counts & SampleCountFlags.Count4Bit) != 0) return SampleCountFlags.Count4Bit;
+        if ((counts & SampleCountFlags.Count2Bit) != 0) return SampleCountFlags.Count2Bit;
+
+        return SampleCountFlags.Count1Bit;
+    }
+
     private void CreateTextureImageView()
     {
         textureImageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit, mipLevels);
@@ -1181,7 +1240,7 @@ unsafe class MGSVRenderingApp
         return imageView;
     }
 
-    private void CreateImage(uint width, uint height, uint mipLevels, Format format, ImageTiling tiling, ImageUsageFlags usage, MemoryPropertyFlags properties, ref Image image, ref DeviceMemory imageMemory)
+    private void CreateImage(uint width, uint height, uint mipLevels, SampleCountFlags numSamples, Format format, ImageTiling tiling, ImageUsageFlags usage, MemoryPropertyFlags properties, ref Image image, ref DeviceMemory imageMemory)
     {
         ImageCreateInfo imageInfo = new()
         {
@@ -1199,7 +1258,7 @@ unsafe class MGSVRenderingApp
             Tiling = tiling,
             InitialLayout = ImageLayout.Undefined,
             Usage = usage,
-            Samples = SampleCountFlags.Count1Bit,
+            Samples = numSamples,
             SharingMode = SharingMode.Exclusive
         };
 
