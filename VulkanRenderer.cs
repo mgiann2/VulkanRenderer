@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.Core;
 using Silk.NET.Core.Contexts;
@@ -5,7 +6,6 @@ using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
-using Silk.NET.Windowing;
 
 unsafe class VulkanRenderer : IDisposable
 {
@@ -30,6 +30,10 @@ unsafe class VulkanRenderer : IDisposable
 
     private PhysicalDevice physicalDevice;
 
+    private Device device;
+    private Queue graphicsQueue;
+    private Queue presentQueue;
+
     private bool disposedValue;
 
     public VulkanRenderer(IVkSurface windowSurface, bool enableValidationLayers = false)
@@ -39,10 +43,10 @@ unsafe class VulkanRenderer : IDisposable
 
         EnableValidationLayers = enableValidationLayers;
         
-        instance = CreateInstance();
-        (khrSurface, surface) = CreateSurface();
-        physicalDevice = PickPhysicalDevice();
-
+        CreateInstance(out instance);
+        CreateSurface(out khrSurface, out surface);
+        PickPhysicalDevice(out physicalDevice);
+        CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
     }
 
     /// <summary>
@@ -62,7 +66,7 @@ unsafe class VulkanRenderer : IDisposable
 
     }
 
-    private Instance CreateInstance()
+    private void CreateInstance(out Instance instance)
     {
         if (EnableValidationLayers && !CheckValidationLayerSupport())
         {
@@ -110,7 +114,7 @@ unsafe class VulkanRenderer : IDisposable
             instanceInfo.PNext = &messengerInfo;
         }
 
-        if (vk.CreateInstance(in instanceInfo, null, out var newInstance) != Result.Success)
+        if (vk.CreateInstance(in instanceInfo, null, out instance) != Result.Success)
         {
             throw new Exception("Failed to create instance!");
         }
@@ -120,30 +124,28 @@ unsafe class VulkanRenderer : IDisposable
         Marshal.FreeHGlobal((nint) appInfo.PApplicationName);
         SilkMarshal.Free((nint) instanceInfo.PpEnabledExtensionNames);
         if (EnableValidationLayers) SilkMarshal.Free((nint) instanceInfo.PpEnabledLayerNames);
-
-        return newInstance;
     }
 
-    private (KhrSurface, SurfaceKHR) CreateSurface()
+    private void CreateSurface(out KhrSurface khrSurface, out SurfaceKHR surface)
     {
-        if (!vk.TryGetInstanceExtension(instance, out KhrSurface khrSurface))
+        if (!vk.TryGetInstanceExtension(instance, out khrSurface))
         {
             throw new NotSupportedException("KHR_surface extension not found!");
         }
         
-        var surface =windowSurface.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
-        return (khrSurface, surface);     
+        surface = windowSurface.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
     }
 
-    private PhysicalDevice PickPhysicalDevice()
+    private void PickPhysicalDevice(out PhysicalDevice physicalDevice)
     {
         var devices = vk.GetPhysicalDevices(instance);
 
         foreach (var device in devices)
         {
-            if (IsSuitablePhysicalDevice(device))
+            if (IsPhysicalDeviceSuitable(device))
             {
-                return device;
+                physicalDevice = device;
+                return;
             }
         }
 
@@ -255,6 +257,62 @@ unsafe class VulkanRenderer : IDisposable
         return details;
     }
 
+    private void CreateLogicalDevice(out Device logicalDevice, out Queue graphicsQueue, out Queue presentationQueue)
+    {
+        var indices = FindQueueFamilies(physicalDevice);
+
+        var uniqueQueueFamilies = new[] { indices.GraphicsFamily!.Value, indices.PresentFamily!.Value };
+        uniqueQueueFamilies = uniqueQueueFamilies.Distinct().ToArray();
+
+        using var mem = GlobalMemory.Allocate(uniqueQueueFamilies.Length * sizeof(DeviceQueueCreateInfo));
+        var queueCreateInfos = (DeviceQueueCreateInfo*) Unsafe.AsPointer(ref mem.GetPinnableReference());
+
+        float queuePriority = 1.0f;
+        for (int i = 0; i < uniqueQueueFamilies.Length; i++)
+        {
+            queueCreateInfos[i] = new()
+            {
+                SType = StructureType.DeviceQueueCreateInfo,
+                QueueFamilyIndex = uniqueQueueFamilies[i],
+                QueueCount = 1,
+                PQueuePriorities = &queuePriority
+            };
+        }
+
+        PhysicalDeviceFeatures deviceFeatures = new();
+
+        DeviceCreateInfo deviceInfo = new()
+        {
+            SType = StructureType.DeviceCreateInfo,
+            PQueueCreateInfos = queueCreateInfos,
+            QueueCreateInfoCount = (uint) uniqueQueueFamilies.Length,
+            PEnabledFeatures = &deviceFeatures,
+            EnabledExtensionCount = (uint) deviceExtensions.Length,
+            PpEnabledExtensionNames = (byte**) SilkMarshal.StringArrayToPtr(deviceExtensions)
+        };
+
+        if (EnableValidationLayers)
+        {
+            deviceInfo.EnabledLayerCount = (uint) validationLayers.Length;
+            deviceInfo.PpEnabledLayerNames = (byte**) SilkMarshal.StringArrayToPtr(validationLayers);
+        }
+        else
+        {
+            deviceInfo.EnabledLayerCount = 0;
+        }
+
+        if (vk.CreateDevice(physicalDevice, in deviceInfo, null, out logicalDevice) != Result.Success)
+        {
+            throw new Exception("Failed to create logical device!");
+        }
+
+        vk.GetDeviceQueue(logicalDevice, indices.GraphicsFamily!.Value, 0, out graphicsQueue);
+        vk.GetDeviceQueue(logicalDevice, indices.PresentFamily!.Value, 0, out presentationQueue);
+
+        if (EnableValidationLayers) SilkMarshal.Free((nint) deviceInfo.PpEnabledLayerNames);
+        SilkMarshal.Free((nint) deviceInfo.PpEnabledExtensionNames);
+    }
+
     private string[] GetRequiredExtensions()
     {
         var glfwExtensions = windowSurface.GetRequiredExtensions(out var glfwExtensionCount);
@@ -317,6 +375,7 @@ unsafe class VulkanRenderer : IDisposable
             }
 
             // free unmanaged resources unmanaged objects and override finalizer
+            vk.DestroyDevice(device, null);
             vk.DestroyInstance(instance, null);
 
             disposedValue = true;
