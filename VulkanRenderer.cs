@@ -6,6 +6,7 @@ using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
+using Silk.NET.Windowing;
 
 unsafe class VulkanRenderer : IDisposable
 {
@@ -22,6 +23,7 @@ unsafe class VulkanRenderer : IDisposable
     };
 
     private Vk vk;
+    private IWindow window;
     private IVkSurface windowSurface;
     private Instance instance;
 
@@ -34,12 +36,21 @@ unsafe class VulkanRenderer : IDisposable
     private Queue graphicsQueue;
     private Queue presentQueue;
 
+    private KhrSwapchain khrSwapchain;
+    private SwapchainKHR swapchain;
+    private Image[] swapchainImages;
+    private Extent2D swapchainExtent;
+    private Format swapchainImageFormat;
+
     private bool disposedValue;
 
-    public VulkanRenderer(IVkSurface windowSurface, bool enableValidationLayers = false)
+    public VulkanRenderer(IWindow window, bool enableValidationLayers = false)
     {
         vk = Vk.GetApi();
-        this.windowSurface = windowSurface;
+        
+        this.window = window;
+        if (window.VkSurface == null) throw new Exception("No vk surface exists on window!");
+        windowSurface = window.VkSurface;
 
         EnableValidationLayers = enableValidationLayers;
         
@@ -47,6 +58,7 @@ unsafe class VulkanRenderer : IDisposable
         CreateSurface(out khrSurface, out surface);
         PickPhysicalDevice(out physicalDevice);
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
+        CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
     }
 
     /// <summary>
@@ -168,6 +180,131 @@ unsafe class VulkanRenderer : IDisposable
         return indices.IsComplete() && extensionsSupported && swapChainAdequate;
     }
 
+    private void CreateLogicalDevice(out Device logicalDevice, out Queue graphicsQueue, out Queue presentationQueue)
+    {
+        var indices = FindQueueFamilies(physicalDevice);
+
+        var uniqueQueueFamilies = new[] { indices.GraphicsFamily!.Value, indices.PresentFamily!.Value };
+        uniqueQueueFamilies = uniqueQueueFamilies.Distinct().ToArray();
+
+        using var mem = GlobalMemory.Allocate(uniqueQueueFamilies.Length * sizeof(DeviceQueueCreateInfo));
+        var queueCreateInfos = (DeviceQueueCreateInfo*) Unsafe.AsPointer(ref mem.GetPinnableReference());
+
+        float queuePriority = 1.0f;
+        for (int i = 0; i < uniqueQueueFamilies.Length; i++)
+        {
+            queueCreateInfos[i] = new()
+            {
+                SType = StructureType.DeviceQueueCreateInfo,
+                QueueFamilyIndex = uniqueQueueFamilies[i],
+                QueueCount = 1,
+                PQueuePriorities = &queuePriority
+            };
+        }
+
+        PhysicalDeviceFeatures deviceFeatures = new();
+
+        DeviceCreateInfo deviceInfo = new()
+        {
+            SType = StructureType.DeviceCreateInfo,
+            PQueueCreateInfos = queueCreateInfos,
+            QueueCreateInfoCount = (uint) uniqueQueueFamilies.Length,
+            PEnabledFeatures = &deviceFeatures,
+            EnabledExtensionCount = (uint) deviceExtensions.Length,
+            PpEnabledExtensionNames = (byte**) SilkMarshal.StringArrayToPtr(deviceExtensions)
+        };
+
+        if (EnableValidationLayers)
+        {
+            deviceInfo.EnabledLayerCount = (uint) validationLayers.Length;
+            deviceInfo.PpEnabledLayerNames = (byte**) SilkMarshal.StringArrayToPtr(validationLayers);
+        }
+        else
+        {
+            deviceInfo.EnabledLayerCount = 0;
+        }
+
+        if (vk.CreateDevice(physicalDevice, in deviceInfo, null, out logicalDevice) != Result.Success)
+        {
+            throw new Exception("Failed to create logical device!");
+        }
+
+        vk.GetDeviceQueue(logicalDevice, indices.GraphicsFamily!.Value, 0, out graphicsQueue);
+        vk.GetDeviceQueue(logicalDevice, indices.PresentFamily!.Value, 0, out presentationQueue);
+
+        if (EnableValidationLayers) SilkMarshal.Free((nint) deviceInfo.PpEnabledLayerNames);
+        SilkMarshal.Free((nint) deviceInfo.PpEnabledExtensionNames);
+    }
+
+    private void CreateSwapchain(out KhrSwapchain khrSwapchain, out SwapchainKHR swapchain,
+            out Image[] swapchainImages, out Format swapchainImageFormat, out Extent2D swapchainExtent)
+    {
+        var swapchainSupportDetails = QuerySwapChainSupport(physicalDevice);
+
+        var surfaceFormat = ChooseSwapSurfaceFormat(swapchainSupportDetails.Formats);
+        var presentMode = ChooseSwapPresentMode(swapchainSupportDetails.PresentModes);
+        var extent = ChooseSwapExtent(swapchainSupportDetails.Capabilities);
+
+        uint imageCount = swapchainSupportDetails.Capabilities.MinImageCount + 1;
+        if (swapchainSupportDetails.Capabilities.MaxImageCount > 0 && imageCount > swapchainSupportDetails.Capabilities.MaxImageCount)
+        {
+            imageCount = swapchainSupportDetails.Capabilities.MaxImageCount;
+        }
+
+        SwapchainCreateInfoKHR swapchainInfo = new()
+        {
+            SType = StructureType.SwapchainCreateInfoKhr,
+            Surface = surface,
+            MinImageCount = imageCount,
+            ImageFormat = surfaceFormat.Format,
+            ImageColorSpace = surfaceFormat.ColorSpace,
+            ImageExtent = extent,
+            ImageArrayLayers = 1,
+            ImageUsage = ImageUsageFlags.ColorAttachmentBit
+        };
+
+        var indices = FindQueueFamilies(physicalDevice);
+        var queueFamilyIndices = stackalloc[] { indices.GraphicsFamily!.Value, indices.PresentFamily!.Value };
+
+        if (indices.GraphicsFamily != indices.PresentFamily)
+        {
+            swapchainInfo.ImageSharingMode = SharingMode.Concurrent;
+            swapchainInfo.QueueFamilyIndexCount = 2;
+            swapchainInfo.PQueueFamilyIndices = queueFamilyIndices;
+        }
+        else
+        {
+            swapchainInfo.ImageSharingMode = SharingMode.Exclusive;
+        }
+
+        swapchainInfo.PreTransform = swapchainSupportDetails.Capabilities.CurrentTransform;
+        swapchainInfo.CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr;
+        swapchainInfo.PresentMode = presentMode;
+        swapchainInfo.Clipped = true;
+        swapchainInfo.OldSwapchain = default;
+
+        if (!vk.TryGetDeviceExtension(instance, device, out khrSwapchain))
+        {
+            throw new Exception("VK_KHR_swapchain extension not found!");
+        }
+
+        if (khrSwapchain.CreateSwapchain(device, in swapchainInfo, null, out swapchain) != Result.Success)
+        {
+            throw new Exception("Failded to create swapchain!");
+        }
+
+        uint swapchainImageCount = 0;
+        khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, null);
+        swapchainImages = new Image[imageCount];
+        fixed (Image* swapchainImagesPtr = swapchainImages)
+        {
+            khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, swapchainImagesPtr);
+        }
+
+        swapchainImageFormat = surfaceFormat.Format;
+        swapchainExtent = extent;
+    }
+
     private QueueFamilyIndices FindQueueFamilies(PhysicalDevice physicalDevice)
     {
         QueueFamilyIndices indices = new();
@@ -187,6 +324,13 @@ unsafe class VulkanRenderer : IDisposable
             if (queueFamily.QueueFlags.HasFlag(QueueFlags.GraphicsBit))
             {
                 indices.GraphicsFamily = i;
+            }
+
+            khrSurface.GetPhysicalDeviceSurfaceSupport(physicalDevice, i, surface, out var presentSupport);
+
+            if (presentSupport)
+            {
+                indices.PresentFamily = i;
             }
 
             if (indices.IsComplete())
@@ -257,60 +401,53 @@ unsafe class VulkanRenderer : IDisposable
         return details;
     }
 
-    private void CreateLogicalDevice(out Device logicalDevice, out Queue graphicsQueue, out Queue presentationQueue)
+    private SurfaceFormatKHR ChooseSwapSurfaceFormat(SurfaceFormatKHR[] availableFormats)
     {
-        var indices = FindQueueFamilies(physicalDevice);
-
-        var uniqueQueueFamilies = new[] { indices.GraphicsFamily!.Value, indices.PresentFamily!.Value };
-        uniqueQueueFamilies = uniqueQueueFamilies.Distinct().ToArray();
-
-        using var mem = GlobalMemory.Allocate(uniqueQueueFamilies.Length * sizeof(DeviceQueueCreateInfo));
-        var queueCreateInfos = (DeviceQueueCreateInfo*) Unsafe.AsPointer(ref mem.GetPinnableReference());
-
-        float queuePriority = 1.0f;
-        for (int i = 0; i < uniqueQueueFamilies.Length; i++)
+        foreach (var surfaceFormat in availableFormats)
         {
-            queueCreateInfos[i] = new()
+            if (surfaceFormat.Format == Format.R8G8B8A8Srgb && surfaceFormat.ColorSpace == ColorSpaceKHR.SpaceSrgbNonlinearKhr)
             {
-                SType = StructureType.DeviceQueueCreateInfo,
-                QueueFamilyIndex = uniqueQueueFamilies[i],
-                QueueCount = 1,
-                PQueuePriorities = &queuePriority
-            };
+                return surfaceFormat;
+            }
         }
 
-        PhysicalDeviceFeatures deviceFeatures = new();
+        return availableFormats[0];
+    }
 
-        DeviceCreateInfo deviceInfo = new()
+    private PresentModeKHR ChooseSwapPresentMode(PresentModeKHR[] availablePresentModes)
+    {
+        foreach (var presentMode in availablePresentModes)
         {
-            SType = StructureType.DeviceCreateInfo,
-            PQueueCreateInfos = queueCreateInfos,
-            QueueCreateInfoCount = (uint) uniqueQueueFamilies.Length,
-            PEnabledFeatures = &deviceFeatures,
-            EnabledExtensionCount = (uint) deviceExtensions.Length,
-            PpEnabledExtensionNames = (byte**) SilkMarshal.StringArrayToPtr(deviceExtensions)
-        };
+            if (presentMode == PresentModeKHR.MailboxKhr)
+            {
+                return presentMode;
+            }
+        }
 
-        if (EnableValidationLayers)
+        return PresentModeKHR.FifoKhr;
+    }
+
+    private Extent2D ChooseSwapExtent(SurfaceCapabilitiesKHR capabilities)
+    {
+        if (capabilities.CurrentExtent.Width != uint.MaxValue)
         {
-            deviceInfo.EnabledLayerCount = (uint) validationLayers.Length;
-            deviceInfo.PpEnabledLayerNames = (byte**) SilkMarshal.StringArrayToPtr(validationLayers);
+            return capabilities.CurrentExtent;
         }
         else
         {
-            deviceInfo.EnabledLayerCount = 0;
+            var framebufferSize = window.FramebufferSize;
+
+            var actualExtent = new Extent2D() 
+            {
+                Width = (uint) framebufferSize.X,
+                Height = (uint) framebufferSize.Y
+            };
+
+            actualExtent.Width = Math.Clamp(actualExtent.Width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width);
+            actualExtent.Height = Math.Clamp(actualExtent.Height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height);
+            
+            return actualExtent;
         }
-
-        if (vk.CreateDevice(physicalDevice, in deviceInfo, null, out logicalDevice) != Result.Success)
-        {
-            throw new Exception("Failed to create logical device!");
-        }
-
-        vk.GetDeviceQueue(logicalDevice, indices.GraphicsFamily!.Value, 0, out graphicsQueue);
-        vk.GetDeviceQueue(logicalDevice, indices.PresentFamily!.Value, 0, out presentationQueue);
-
-        if (EnableValidationLayers) SilkMarshal.Free((nint) deviceInfo.PpEnabledLayerNames);
-        SilkMarshal.Free((nint) deviceInfo.PpEnabledExtensionNames);
     }
 
     private string[] GetRequiredExtensions()
@@ -375,6 +512,9 @@ unsafe class VulkanRenderer : IDisposable
             }
 
             // free unmanaged resources unmanaged objects and override finalizer
+                
+            khrSwapchain.DestroySwapchain(device, swapchain, null);
+
             vk.DestroyDevice(device, null);
             vk.DestroyInstance(instance, null);
 

@@ -13,8 +13,25 @@ using Semaphore = Silk.NET.Vulkan.Semaphore;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using File = System.IO.File;
 
-var app = new MGSVRenderingApp();
-app.Run();
+// var app = new MGSVRenderingApp();
+// app.Run();
+
+var options = WindowOptions.DefaultVulkan with
+{
+    Size = new Vector2D<int>(800, 600),
+    Title = "MGSV Renderer"
+};
+
+var window = Window.Create(options);
+window.Initialize();
+
+if (window.VkSurface is null)
+{
+    throw new Exception("Windowing platform doesn't support Vulkan");
+}
+
+var renderer = new VulkanRenderer(window);
+window.Run();
 
 struct QueueFamilyIndices
 {
@@ -1509,7 +1526,7 @@ unsafe class MGSVRenderingApp
 
     private void CreateVertexBuffer()
     {
-        ulong bufferSize = (ulong)(Unsafe.SizeOf<Vertex>() * vertices.Length);
+        ulong bufferSize = (ulong)(Unsafe.SizeOf<Vertex>() * vertices!.Length);
 
         Buffer stagingBuffer = default;
         DeviceMemory stagingBufferMemory = default;
