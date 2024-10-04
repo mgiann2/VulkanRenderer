@@ -39,6 +39,7 @@ unsafe class VulkanRenderer : IDisposable
     private KhrSwapchain khrSwapchain;
     private SwapchainKHR swapchain;
     private Image[] swapchainImages;
+    private ImageView[] swapchainImageViews;
     private Extent2D swapchainExtent;
     private Format swapchainImageFormat;
 
@@ -59,6 +60,7 @@ unsafe class VulkanRenderer : IDisposable
         PickPhysicalDevice(out physicalDevice);
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
+        CreateImageViews(out swapchainImageViews);
     }
 
     /// <summary>
@@ -305,6 +307,36 @@ unsafe class VulkanRenderer : IDisposable
         swapchainExtent = extent;
     }
 
+    private void CreateImageViews(out ImageView[] imageViews) 
+    {
+        imageViews = new ImageView[swapchainImages.Length];
+
+        for (int i = 0; i < swapchainImages.Length; i++)
+        {
+            ImageViewCreateInfo createInfo = new()
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = swapchainImages[i],
+                Format = swapchainImageFormat
+            };
+            createInfo.Components.R = ComponentSwizzle.Identity;
+            createInfo.Components.G = ComponentSwizzle.Identity;
+            createInfo.Components.B = ComponentSwizzle.Identity;
+            createInfo.Components.A = ComponentSwizzle.Identity;
+            
+            createInfo.SubresourceRange.AspectMask = ImageAspectFlags.ColorBit;
+            createInfo.SubresourceRange.BaseMipLevel = 0;
+            createInfo.SubresourceRange.LevelCount = 1;
+            createInfo.SubresourceRange.BaseArrayLayer = 0;
+            createInfo.SubresourceRange.LayerCount = 1;
+
+            if (vk.CreateImageView(device, in createInfo, null, out imageViews[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create image view!");
+            }
+        }
+    }
+
     private QueueFamilyIndices FindQueueFamilies(PhysicalDevice physicalDevice)
     {
         QueueFamilyIndices indices = new();
@@ -512,7 +544,11 @@ unsafe class VulkanRenderer : IDisposable
             }
 
             // free unmanaged resources unmanaged objects and override finalizer
-                
+            foreach (var imageView in swapchainImageViews)
+            {
+                vk.DestroyImageView(device, imageView, null);
+            }
+
             khrSwapchain.DestroySwapchain(device, swapchain, null);
 
             vk.DestroyDevice(device, null);
