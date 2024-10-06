@@ -337,6 +337,51 @@ unsafe class VulkanRenderer : IDisposable
         }
     }
 
+    private void CreateGraphicsPipeline(out Pipeline graphicsPipeline, string vertexShaderPath, string fragmentShaderPath)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(vertexShaderPath);
+        byte[] fragmentShaderCode = File.ReadAllBytes(fragmentShaderPath);
+
+        var vertexShaderModule = CreateShaderModule(vertexShaderCode);
+        var fragmentShaderModule = CreateShaderModule(fragmentShaderCode);
+
+        GraphicsPipelineCreateInfo pipelineInfo = new()
+        {
+
+        };
+
+        if (vk.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out graphicsPipeline) != Result.Success)
+        {
+            throw new Exception("Failed to create graphics pipeline!");
+        }
+
+        vk.DestroyShaderModule(device, vertexShaderModule, null);
+        vk.DestroyShaderModule(device, fragmentShaderModule, null);
+    }
+
+    private ShaderModule CreateShaderModule(byte[] shaderCode)
+    {
+        ShaderModuleCreateInfo createInfo = new()
+        {
+            SType = StructureType.ShaderModuleCreateInfo,
+            CodeSize = (nuint) shaderCode.Length,
+        };
+
+        ShaderModule shaderModule;
+
+        fixed (byte* shaderCodePtr = shaderCode)
+        {
+            createInfo.PCode = (uint*) shaderCodePtr;
+
+            if (vk.CreateShaderModule(device, in createInfo, null, out shaderModule) != Result.Success)
+            {
+                throw new Exception("Failed to create shader!");
+            }
+        }
+
+        return shaderModule;
+    }
+
     private QueueFamilyIndices FindQueueFamilies(PhysicalDevice physicalDevice)
     {
         QueueFamilyIndices indices = new();
