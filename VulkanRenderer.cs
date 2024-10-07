@@ -42,6 +42,7 @@ unsafe class VulkanRenderer : IDisposable
     private ImageView[] swapchainImageViews;
     private Extent2D swapchainExtent;
     private Format swapchainImageFormat;
+    private Framebuffer[] swapchainFramebuffers;
 
     private RenderPass renderPass;
     private PipelineLayout pipelineLayout;
@@ -67,6 +68,7 @@ unsafe class VulkanRenderer : IDisposable
         CreateImageViews(out swapchainImageViews);
         CreateRenderPass(out renderPass);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
+        CreateFramebuffers(out swapchainFramebuffers);
     }
 
     /// <summary>
@@ -532,6 +534,32 @@ unsafe class VulkanRenderer : IDisposable
         return shaderModule;
     }
 
+    private void CreateFramebuffers(out Framebuffer[] framebuffers)
+    {
+        framebuffers = new Framebuffer[swapchainImageViews.Length];
+
+        for (int i = 0; i < swapchainImageViews.Length; i++)
+        {
+            var attachments = stackalloc[] { swapchainImageViews[i] };
+
+            FramebufferCreateInfo framebufferInfo = new()
+            {
+                SType = StructureType.FramebufferCreateInfo,
+                RenderPass = renderPass,
+                AttachmentCount = 1,
+                PAttachments = attachments,
+                Width = swapchainExtent.Width,
+                Height = swapchainExtent.Height,
+                Layers = 1
+            };
+
+            if (vk.CreateFramebuffer(device, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create framebuffer!");
+            }
+        }
+    }
+
     private QueueFamilyIndices FindQueueFamilies(PhysicalDevice physicalDevice)
     {
         QueueFamilyIndices indices = new();
@@ -739,6 +767,11 @@ unsafe class VulkanRenderer : IDisposable
             }
 
             // free unmanaged resources unmanaged objects and override finalizer
+            foreach (var framebuffer in swapchainFramebuffers)
+            {
+                vk.DestroyFramebuffer(device, framebuffer, null);
+            }
+
             vk.DestroyPipelineLayout(device, pipelineLayout, null);
             vk.DestroyRenderPass(device, renderPass, null);
 
