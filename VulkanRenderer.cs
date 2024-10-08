@@ -7,6 +7,7 @@ using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
+using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 unsafe class VulkanRenderer : IDisposable
 {
@@ -48,6 +49,13 @@ unsafe class VulkanRenderer : IDisposable
     private PipelineLayout pipelineLayout;
     private Pipeline graphicsPipeline;
 
+    private CommandPool commandPool;
+    private CommandBuffer commandBuffer;
+
+    private Semaphore imageAvailableSemaphore;
+    private Semaphore renderFinishedSemaphore;
+    private Fence inFlightFence;
+
     private bool disposedValue;
 
     public VulkanRenderer(IWindow window, bool enableValidationLayers = false)
@@ -69,6 +77,9 @@ unsafe class VulkanRenderer : IDisposable
         CreateRenderPass(out renderPass);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
         CreateFramebuffers(out swapchainFramebuffers);
+        CreateCommandPool(out commandPool);
+        CreateCommandBuffer(out commandBuffer);
+        CreateSyncObjects(out imageAvailableSemaphore, out renderFinishedSemaphore, out inFlightFence);
     }
 
     /// <summary>
@@ -79,13 +90,75 @@ unsafe class VulkanRenderer : IDisposable
 
     }
 
-
     /// <summary>
     /// Submits a new frame to be drawn
     /// </summary>
     public void EndFrame()
     {
 
+    }
+
+    public void BeginRenderPass()
+    {
+
+    }
+
+    public void EndRenderPass()
+    {
+
+    }
+
+    public void DrawFrame(double deltaTime)
+    {
+        vk.WaitForFences(device, 1, ref inFlightFence, true, ulong.MaxValue);
+
+        uint imageIndex = 0;
+        var result = khrSwapchain.AcquireNextImage(device, swapchain, ulong.MaxValue, imageAvailableSemaphore, default, ref imageIndex);
+        if (result != Result.Success)
+        {
+            throw new Exception("Failed to acquire next image!");
+        }
+
+        vk.ResetFences(device, 1, ref inFlightFence);
+
+        vk.ResetCommandBuffer(commandBuffer, CommandBufferResetFlags.None);
+        RecordCommandBuffer(commandBuffer, imageIndex);
+
+        var waitSemaphores = stackalloc[] { imageAvailableSemaphore };
+        var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
+        var signalSemaphores = stackalloc[] { renderFinishedSemaphore };
+        var buffer = commandBuffer;
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+            WaitSemaphoreCount = 1,
+            PWaitSemaphores = waitSemaphores,
+            PWaitDstStageMask = waitStages,
+            CommandBufferCount = 1,
+            PCommandBuffers = &buffer,
+            SignalSemaphoreCount = 1,
+            PSignalSemaphores = signalSemaphores
+        };
+
+        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFence) != Result.Success)
+        {
+            throw new Exception("Failed to submit draw command buffer!");
+        }
+
+        var swapchains = stackalloc[] { swapchain };
+
+        PresentInfoKHR presentInfo = new()
+        {
+            SType = StructureType.PresentInfoKhr,
+            WaitSemaphoreCount = 1,
+            PWaitSemaphores = signalSemaphores,
+            SwapchainCount = 1,
+            PSwapchains = swapchains,
+            PImageIndices = &imageIndex
+        };
+
+        khrSwapchain.QueuePresent(presentQueue, in presentInfo);
     }
 
     private void CreateInstance(out Instance instance)
@@ -305,7 +378,7 @@ unsafe class VulkanRenderer : IDisposable
 
         uint swapchainImageCount = 0;
         khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, null);
-        swapchainImages = new Image[imageCount];
+        swapchainImages = new Image[swapchainImageCount];
         fixed (Image* swapchainImagesPtr = swapchainImages)
         {
             khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, swapchainImagesPtr);
@@ -373,13 +446,25 @@ unsafe class VulkanRenderer : IDisposable
             PColorAttachments = &colorAttachmentRef
         };
 
+        SubpassDependency dependency = new()
+        {
+            SrcSubpass = Vk.SubpassExternal,
+            DstSubpass = 0,
+            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+            SrcAccessMask = 0,
+            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+            DstAccessMask = AccessFlags.ColorAttachmentWriteBit,
+        };
+
         RenderPassCreateInfo renderPassInfo = new()
         {
             SType = StructureType.RenderPassCreateInfo,
             AttachmentCount = 1,
             PAttachments = &colorAttachment,
             SubpassCount = 1,
-            PSubpasses = &subpass
+            PSubpasses = &subpass,
+            DependencyCount = 1,
+            PDependencies = &dependency
         };
 
         if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
@@ -557,6 +642,124 @@ unsafe class VulkanRenderer : IDisposable
             {
                 throw new Exception("Failed to create framebuffer!");
             }
+        }
+    }
+
+    private void CreateCommandPool(out CommandPool commandPool)
+    {
+        var queueFamilyIndices = FindQueueFamilies(physicalDevice);
+
+        CommandPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.CommandPoolCreateInfo,
+            Flags = CommandPoolCreateFlags.ResetCommandBufferBit,
+            QueueFamilyIndex = queueFamilyIndices.GraphicsFamily!.Value
+        };
+
+        if (vk.CreateCommandPool(device, in poolInfo, null, out commandPool) != Result.Success)
+        {
+            throw new Exception("Failed to create command pool!");
+        }
+    }
+
+    private void CreateCommandBuffer(out CommandBuffer commandBuffer)
+    {
+        CommandBufferAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.CommandBufferAllocateInfo,
+            CommandPool = commandPool,
+            Level = CommandBufferLevel.Primary,
+            CommandBufferCount = 1
+        };
+
+        if (vk.AllocateCommandBuffers(device, in allocInfo, out commandBuffer) != Result.Success)
+        {
+            throw new Exception("Failed to allocate command buffers!");
+        }
+    }
+
+    private void RecordCommandBuffer(CommandBuffer commandBuffer, uint imageIndex)
+    {
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+        };
+
+        if (vk.BeginCommandBuffer(commandBuffer, in beginInfo) != Result.Success)
+        {
+            throw new Exception("Failed to begin command buffer!");
+        }
+
+        RenderPassBeginInfo renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassBeginInfo,
+            RenderPass = renderPass,
+            Framebuffer = swapchainFramebuffers[imageIndex],
+            RenderArea = new()
+            {
+                Extent = swapchainExtent,
+                Offset = { X = 0, Y = 0 }
+            }
+        };
+
+        ClearValue clearColor = new()
+        {
+            Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f },
+        };
+
+        renderPassInfo.ClearValueCount = 1;
+        renderPassInfo.PClearValues = &clearColor;
+
+        vk.CmdBeginRenderPass(commandBuffer, in renderPassInfo, SubpassContents.Inline);
+
+        vk.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, graphicsPipeline);
+
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = swapchainExtent.Width,
+            Height = swapchainExtent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f,
+        };
+        vk.CmdSetViewport(commandBuffer, 0, 1, in viewport);
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapchainExtent
+        };
+        vk.CmdSetScissor(commandBuffer, 0, 1, in scissor);
+
+        vk.CmdDraw(commandBuffer, 3, 1, 0, 0);
+
+        vk.CmdEndRenderPass(commandBuffer);
+
+        if (vk.EndCommandBuffer(commandBuffer) != Result.Success)
+        {
+            throw new Exception("Failed to end command buffer!");
+        }
+    }
+
+    private void CreateSyncObjects(out Semaphore imageAvailableSemaphore, out Semaphore renderFinishedSemaphore, out Fence inFlightFence)
+    {
+        SemaphoreCreateInfo semaphoreInfo = new()
+        {
+            SType = StructureType.SemaphoreCreateInfo,
+        };
+
+        FenceCreateInfo fenceInfo = new()
+        {
+            SType = StructureType.FenceCreateInfo,
+            Flags = FenceCreateFlags.SignaledBit
+        };
+
+        if (vk.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphore) != Result.Success ||
+            vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphore) != Result.Success ||
+            vk.CreateFence(device, in fenceInfo, null, out inFlightFence) != Result.Success)
+        {
+            throw new Exception("Failed to create sync objects!");
         }
     }
 
@@ -767,6 +970,12 @@ unsafe class VulkanRenderer : IDisposable
             }
 
             // free unmanaged resources unmanaged objects and override finalizer
+            vk.DestroySemaphore(device, imageAvailableSemaphore, null);
+            vk.DestroySemaphore(device, renderFinishedSemaphore, null);
+            vk.DestroyFence(device, inFlightFence, null);
+
+            vk.DestroyCommandPool(device, commandPool, null);
+
             foreach (var framebuffer in swapchainFramebuffers)
             {
                 vk.DestroyFramebuffer(device, framebuffer, null);

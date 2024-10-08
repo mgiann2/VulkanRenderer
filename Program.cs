@@ -30,7 +30,8 @@ if (window.VkSurface is null)
     throw new Exception("Windowing platform doesn't support Vulkan");
 }
 
-var renderer = new VulkanRenderer(window);
+var renderer = new VulkanRenderer(window, true);
+window.Update += renderer.DrawFrame;
 window.Run();
 
 struct QueueFamilyIndices
