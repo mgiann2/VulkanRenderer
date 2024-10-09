@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Silk.NET.Core;
 using Silk.NET.Core.Contexts;
 using Silk.NET.Core.Native;
+using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
@@ -56,7 +57,9 @@ unsafe class VulkanRenderer : IDisposable
     private Semaphore[] imageAvailableSemaphores;
     private Semaphore[] renderFinishedSemaphores;
     private Fence[] inFlightFences;
+
     private uint currentFrame;
+    private bool framebufferResized = false;
 
     private bool disposedValue;
 
@@ -82,6 +85,9 @@ unsafe class VulkanRenderer : IDisposable
         CreateCommandPool(out commandPool);
         CreateCommandBuffers(out commandBuffers);
         CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
+
+        window.Render += DrawFrame;
+        window.FramebufferResize += OnFramebufferResize;
     }
 
     /// <summary>
@@ -110,13 +116,18 @@ unsafe class VulkanRenderer : IDisposable
 
     }
 
-    public void DrawFrame(double deltaTime)
+    private void DrawFrame(double deltaTime)
     {
         vk.WaitForFences(device, 1, ref inFlightFences[currentFrame], true, ulong.MaxValue);
 
         uint imageIndex = 0;
         var result = khrSwapchain.AcquireNextImage(device, swapchain, ulong.MaxValue, imageAvailableSemaphores[currentFrame], default, ref imageIndex);
-        if (result != Result.Success)
+        if (result == Result.ErrorOutOfDateKhr)
+        {
+            RecreateSwapchain();
+            return;
+        }
+        else if (result != Result.Success && result != Result.SuboptimalKhr)
         {
             throw new Exception("Failed to acquire next image!");
         }
@@ -160,9 +171,23 @@ unsafe class VulkanRenderer : IDisposable
             PImageIndices = &imageIndex
         };
 
-        khrSwapchain.QueuePresent(presentQueue, in presentInfo);
+        result = khrSwapchain.QueuePresent(presentQueue, in presentInfo);
+        if (result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || framebufferResized)
+        {
+            framebufferResized = false;
+            RecreateSwapchain();
+        }
+        else if (result != Result.Success)
+        {
+            throw new Exception("Failed to present swapchain image!");
+        }
 
         currentFrame = (currentFrame + 1) % MaxFramesInFlight;
+    }
+
+    private void OnFramebufferResize(Vector2D<int> framebufferSize)
+    {
+        framebufferResized = true;
     }
 
     private void CreateInstance(out Instance instance)
@@ -390,6 +415,39 @@ unsafe class VulkanRenderer : IDisposable
 
         swapchainImageFormat = surfaceFormat.Format;
         swapchainExtent = extent;
+    }
+
+    private void CleanupSwapchain()
+    {
+        foreach (var framebuffer in swapchainFramebuffers)
+        {
+            vk.DestroyFramebuffer(device, framebuffer, null);
+        }
+
+        foreach (var imageView in swapchainImageViews)
+        {
+            vk.DestroyImageView(device, imageView, null);
+        }
+
+        khrSwapchain.DestroySwapchain(device, swapchain, null);
+    }
+
+    private void RecreateSwapchain()
+    {
+        Vector2D<int> framebufferSize = window.FramebufferSize;
+
+        // wait for window to be unminimized
+        while (framebufferSize.X == 0 || framebufferSize.Y == 0)
+        {
+            framebufferSize = window.FramebufferSize;
+            window.DoEvents();
+        }
+        
+        vk.DeviceWaitIdle(device);
+
+        CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
+        CreateImageViews(out swapchainImageViews);
+        CreateFramebuffers(out swapchainFramebuffers);
     }
 
     private void CreateImageViews(out ImageView[] imageViews) 
@@ -995,20 +1053,10 @@ unsafe class VulkanRenderer : IDisposable
 
             vk.DestroyCommandPool(device, commandPool, null);
 
-            foreach (var framebuffer in swapchainFramebuffers)
-            {
-                vk.DestroyFramebuffer(device, framebuffer, null);
-            }
+            CleanupSwapchain();
 
             vk.DestroyPipelineLayout(device, pipelineLayout, null);
             vk.DestroyRenderPass(device, renderPass, null);
-
-            foreach (var imageView in swapchainImageViews)
-            {
-                vk.DestroyImageView(device, imageView, null);
-            }
-
-            khrSwapchain.DestroySwapchain(device, swapchain, null);
 
             vk.DestroyDevice(device, null);
             vk.DestroyInstance(instance, null);

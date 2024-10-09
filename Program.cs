@@ -31,7 +31,6 @@ if (window.VkSurface is null)
 }
 
 var renderer = new VulkanRenderer(window, true);
-window.Update += renderer.DrawFrame;
 window.Run();
 
 struct QueueFamilyIndices
@@ -1907,6 +1906,7 @@ unsafe class MGSVRenderingApp
         result = khrSwapChain.QueuePresent(presentQueue, in presentInfo);
         if (result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || framebufferResized)
         {
+            framebufferResized = false;
             RecreateSwapChain();
         }
         else if (result != Result.Success)
