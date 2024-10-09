@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.Assimp;
 using Silk.NET.Core;
@@ -52,7 +52,7 @@ struct SwapChainSupportDetails
     public PresentModeKHR[] PresentModes;
 }
 
-struct Vertex 
+struct Vertex
 {
     public Vector3D<float> pos;
     public Vector3D<float> color;
@@ -63,7 +63,7 @@ struct Vertex
         VertexInputBindingDescription bindingDescription = new()
         {
             Binding = 0,
-            Stride = (uint) Unsafe.SizeOf<Vertex>(),
+            Stride = (uint)Unsafe.SizeOf<Vertex>(),
             InputRate = VertexInputRate.Vertex
         };
 
@@ -341,8 +341,8 @@ unsafe class MGSVRenderingApp
         };
 
         var extensions = GetRequiredExtensions();
-        createInfo.EnabledExtensionCount = (uint) extensions.Length;
-        createInfo.PpEnabledExtensionNames = (byte**) SilkMarshal.StringArrayToPtr(extensions);
+        createInfo.EnabledExtensionCount = (uint)extensions.Length;
+        createInfo.PpEnabledExtensionNames = (byte**)SilkMarshal.StringArrayToPtr(extensions);
 
         if (EnableValidationLayers)
         {
@@ -383,7 +383,7 @@ unsafe class MGSVRenderingApp
         createInfo.MessageType = DebugUtilsMessageTypeFlagsEXT.GeneralBitExt |
                                  DebugUtilsMessageTypeFlagsEXT.PerformanceBitExt |
                                  DebugUtilsMessageTypeFlagsEXT.ValidationBitExt;
-        createInfo.PfnUserCallback = (DebugUtilsMessengerCallbackFunctionEXT) DebugCallback;
+        createInfo.PfnUserCallback = (DebugUtilsMessengerCallbackFunctionEXT)DebugCallback;
     }
 
     private void SetupDebugMessenger()
@@ -412,7 +412,7 @@ unsafe class MGSVRenderingApp
         surface = window!.VkSurface!.Create<AllocationCallbacks>(instance.ToHandle(), null).ToSurface();
     }
 
-    private void PickPhysicalDevice() 
+    private void PickPhysicalDevice()
     {
         var devices = vk!.GetPhysicalDevices(instance);
 
@@ -464,17 +464,17 @@ unsafe class MGSVRenderingApp
         {
             SType = StructureType.DeviceCreateInfo,
             PQueueCreateInfos = queueCreateInfos,
-            QueueCreateInfoCount = (uint) uniqueQueueFamilies.Length,
+            QueueCreateInfoCount = (uint)uniqueQueueFamilies.Length,
             PEnabledFeatures = &deviceFeatures,
-            EnabledExtensionCount = (uint) deviceExtensions.Length,
-            PpEnabledExtensionNames = (byte**) SilkMarshal.StringArrayToPtr(deviceExtensions) 
+            EnabledExtensionCount = (uint)deviceExtensions.Length,
+            PpEnabledExtensionNames = (byte**)SilkMarshal.StringArrayToPtr(deviceExtensions)
         };
-        
+
 
         if (EnableValidationLayers)
         {
-            createInfo.EnabledLayerCount = (uint) validationLayers.Length;
-            createInfo.PpEnabledLayerNames = (byte**) SilkMarshal.StringArrayToPtr(validationLayers);
+            createInfo.EnabledLayerCount = (uint)validationLayers.Length;
+            createInfo.PpEnabledLayerNames = (byte**)SilkMarshal.StringArrayToPtr(validationLayers);
         }
         else
         {
@@ -491,10 +491,10 @@ unsafe class MGSVRenderingApp
 
         if (EnableValidationLayers)
         {
-            SilkMarshal.Free((nint) createInfo.PpEnabledLayerNames);
+            SilkMarshal.Free((nint)createInfo.PpEnabledLayerNames);
         }
 
-        SilkMarshal.Free((nint) createInfo.PpEnabledExtensionNames);
+        SilkMarshal.Free((nint)createInfo.PpEnabledExtensionNames);
     }
 
     private void CreateSwapChain()
@@ -616,7 +616,7 @@ unsafe class MGSVRenderingApp
 
         fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
         {
-            vk!.FreeCommandBuffers(device, commandPool, (uint) commandBuffers!.Length, commandBuffersPtr);
+            vk!.FreeCommandBuffers(device, commandPool, (uint)commandBuffers!.Length, commandBuffersPtr);
         }
 
         vk!.DestroyPipeline(device, graphicsPipeline, null);
@@ -684,7 +684,7 @@ unsafe class MGSVRenderingApp
             InitialLayout = ImageLayout.Undefined,
             FinalLayout = ImageLayout.PresentSrcKhr
         };
-        
+
         AttachmentReference colorAttachmentRef = new()
         {
             Attachment = 0,
@@ -729,7 +729,7 @@ unsafe class MGSVRenderingApp
             RenderPassCreateInfo renderPassInfo = new()
             {
                 SType = StructureType.RenderPassCreateInfo,
-                AttachmentCount = (uint) attachments.Length,
+                AttachmentCount = (uint)attachments.Length,
                 PAttachments = attachmentsPtr,
                 SubpassCount = 1,
                 PSubpasses = &subpass,
@@ -765,15 +765,15 @@ unsafe class MGSVRenderingApp
         };
 
         DescriptorSetLayoutBinding[] layoutBindings = new[] { uboLayoutBinding, samplerLayoutBinding };
-        
+
         fixed (DescriptorSetLayoutBinding* layoutBindingsPtr = layoutBindings)
         fixed (DescriptorSetLayout* descriptorSetLayoutPtr = &descriptorSetLayout)
         {
             DescriptorSetLayoutCreateInfo layoutInfo = new()
             {
                 SType = StructureType.DescriptorSetLayoutCreateInfo,
-                BindingCount = (uint) layoutBindings.Length,
-                PBindings = layoutBindingsPtr 
+                BindingCount = (uint)layoutBindings.Length,
+                PBindings = layoutBindingsPtr
             };
 
             if (vk!.CreateDescriptorSetLayout(device, in layoutInfo, null, descriptorSetLayoutPtr) != Result.Success)
@@ -796,7 +796,7 @@ unsafe class MGSVRenderingApp
             SType = StructureType.PipelineShaderStageCreateInfo,
             Stage = ShaderStageFlags.VertexBit,
             Module = vertShaderModule,
-            PName = (byte*) SilkMarshal.StringToPtr("main")
+            PName = (byte*)SilkMarshal.StringToPtr("main")
         };
 
         PipelineShaderStageCreateInfo fragShaderStageInfo = new()
@@ -804,7 +804,7 @@ unsafe class MGSVRenderingApp
             SType = StructureType.PipelineShaderStageCreateInfo,
             Stage = ShaderStageFlags.FragmentBit,
             Module = fragShaderModule,
-            PName = (byte*) SilkMarshal.StringToPtr("main")
+            PName = (byte*)SilkMarshal.StringToPtr("main")
         };
 
         var shaderStages = stackalloc[]
@@ -824,7 +824,7 @@ unsafe class MGSVRenderingApp
                 SType = StructureType.PipelineVertexInputStateCreateInfo,
                 VertexBindingDescriptionCount = 1,
                 PVertexBindingDescriptions = &bindingDescription,
-                VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length,
+                VertexAttributeDescriptionCount = (uint)attributeDescriptions.Length,
                 PVertexAttributeDescriptions = attributeDescriptionsPtr
             };
 
@@ -839,8 +839,8 @@ unsafe class MGSVRenderingApp
             {
                 X = 0.0f,
                 Y = 0.0f,
-                Width = (float) swapChainExtent.Width,
-                Height = (float) swapChainExtent.Height,
+                Width = (float)swapChainExtent.Width,
+                Height = (float)swapChainExtent.Height,
                 MinDepth = 0.0f,
                 MaxDepth = 1.0f
             };
@@ -960,7 +960,7 @@ unsafe class MGSVRenderingApp
 
         for (int i = 0; i < swapChainImageViews!.Length; i++)
         {
-            var attachments = new[] { colorImageView, depthImageView, swapChainImageViews[i] }; 
+            var attachments = new[] { colorImageView, depthImageView, swapChainImageViews[i] };
 
             fixed (ImageView* attachmentsPtr = attachments)
             {
@@ -968,7 +968,7 @@ unsafe class MGSVRenderingApp
                 {
                     SType = StructureType.FramebufferCreateInfo,
                     RenderPass = renderPass,
-                    AttachmentCount = (uint) attachments.Length,
+                    AttachmentCount = (uint)attachments.Length,
                     PAttachments = attachmentsPtr,
                     Width = swapChainExtent.Width,
                     Height = swapChainExtent.Height,
@@ -1052,7 +1052,7 @@ unsafe class MGSVRenderingApp
             stream.CopyTo(memoryStream);
             var image = Stbi.LoadFromMemory(memoryStream, 4);
 
-            ulong imageSize = (ulong) (image.Width * image.Height * 4);
+            ulong imageSize = (ulong)(image.Width * image.Height * 4);
             mipLevels = (uint)(Math.Floor(Math.Log2(Math.Max(image.Width, image.Height))) + 1);
 
             Buffer stagingBuffer = default;
@@ -1064,17 +1064,17 @@ unsafe class MGSVRenderingApp
             image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
             vk!.UnmapMemory(device, stagingBufferMemory);
 
-            CreateImage((uint) image.Width, (uint) image.Height, mipLevels, SampleCountFlags.Count1Bit, Format.R8G8B8A8Srgb,
+            CreateImage((uint)image.Width, (uint)image.Height, mipLevels, SampleCountFlags.Count1Bit, Format.R8G8B8A8Srgb,
                     ImageTiling.Optimal, ImageUsageFlags.TransferSrcBit | ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
                     MemoryPropertyFlags.DeviceLocalBit, ref textureImage, ref textureImageMemory);
 
             TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal, mipLevels);
-            CopyBufferToImage(stagingBuffer, textureImage, (uint) image.Width, (uint) image.Height);
+            CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);
 
             vk!.DestroyBuffer(device, stagingBuffer, null);
             vk!.FreeMemory(device, stagingBufferMemory, null);
 
-            GenerateMipmaps(textureImage, Format.R8G8B8A8Srgb, (uint) image.Width, (uint) image.Height, mipLevels);
+            GenerateMipmaps(textureImage, Format.R8G8B8A8Srgb, (uint)image.Width, (uint)image.Height, mipLevels);
         }
     }
 
@@ -1095,7 +1095,7 @@ unsafe class MGSVRenderingApp
             Image = image,
             SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
             DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            SubresourceRange = 
+            SubresourceRange =
             {
                 AspectMask = ImageAspectFlags.ColorBit,
                 BaseArrayLayer = 0,
@@ -1122,7 +1122,7 @@ unsafe class MGSVRenderingApp
 
             ImageBlit blit = new()
             {
-                SrcOffsets = 
+                SrcOffsets =
                 {
                     Element0 = new Offset3D(0,0,0),
                     Element1 = new Offset3D((int)mipWidth, (int)mipHeight, 1)
@@ -1134,12 +1134,12 @@ unsafe class MGSVRenderingApp
                     BaseArrayLayer = 0,
                     LayerCount = 1,
                 },
-                DstOffsets = 
+                DstOffsets =
                 {
                     Element0 = new Offset3D(0,0,0),
                     Element1 = new Offset3D((int)(mipWidth > 1 ? mipWidth / 2 : 1), (int)(mipHeight > 1 ? mipHeight / 2 : 1),1)
                 },
-                DstSubresource = 
+                DstSubresource =
                 {
                     AspectMask = ImageAspectFlags.ColorBit,
                     MipLevel = i,
@@ -1224,7 +1224,7 @@ unsafe class MGSVRenderingApp
             MinLod = 0.0f,
             MaxLod = Vk.LodClampNone
         };
-        
+
         if (vk!.CreateSampler(device, in samplerInfo, null, out textureSampler) != Result.Success)
         {
             throw new Exception("Failed to create texture sampler!");
@@ -1239,7 +1239,7 @@ unsafe class MGSVRenderingApp
             Image = image,
             ViewType = ImageViewType.Type2D,
             Format = format,
-            SubresourceRange = 
+            SubresourceRange =
             {
                 AspectMask = aspectFlags,
                 BaseMipLevel = 0,
@@ -1264,7 +1264,7 @@ unsafe class MGSVRenderingApp
         {
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
-            Extent = 
+            Extent =
             {
                 Width = width,
                 Height = height,
@@ -1329,7 +1329,7 @@ unsafe class MGSVRenderingApp
                 LayerCount = 1
             }
         };
-        
+
         PipelineStageFlags sourceStage;
         PipelineStageFlags destinationStage;
 
@@ -1368,12 +1368,12 @@ unsafe class MGSVRenderingApp
             BufferOffset = 0,
             BufferRowLength = 0,
             BufferImageHeight = 0,
-            ImageSubresource = 
+            ImageSubresource =
             {
                 AspectMask = ImageAspectFlags.ColorBit,
                 MipLevel = 0,
                 BaseArrayLayer = 0,
-                LayerCount = 1 
+                LayerCount = 1
             },
             ImageOffset = new Offset3D(0, 0, 0),
             ImageExtent = new Extent3D(width, height, 1)
@@ -1467,7 +1467,7 @@ unsafe class MGSVRenderingApp
     private void LoadModel()
     {
         using var assimp = Assimp.GetApi();
-        var scene = assimp.ImportFile(ModelPath, (uint) PostProcessPreset.TargetRealTimeMaximumQuality);
+        var scene = assimp.ImportFile(ModelPath, (uint)PostProcessPreset.TargetRealTimeMaximumQuality);
 
         var vertexMap = new Dictionary<Vertex, uint>();
         var vertices = new List<Vertex>();
@@ -1510,8 +1510,8 @@ unsafe class MGSVRenderingApp
                         }
                         else
                         {
-                            indices.Add((uint) vertices.Count);
-                            vertexMap[vertex] = (uint) vertices.Count;
+                            indices.Add((uint)vertices.Count);
+                            vertexMap[vertex] = (uint)vertices.Count;
                             vertices.Add(vertex);
                         }
                     }
@@ -1569,7 +1569,7 @@ unsafe class MGSVRenderingApp
 
     private void CreateUniformBuffers()
     {
-        ulong bufferSize = (ulong) Unsafe.SizeOf<UniformBufferObject>();
+        ulong bufferSize = (ulong)Unsafe.SizeOf<UniformBufferObject>();
 
         uniformBuffers = new Buffer[swapChainImages!.Length];
         uniformBuffersMemory = new DeviceMemory[swapChainImages!.Length];
@@ -1584,9 +1584,9 @@ unsafe class MGSVRenderingApp
     {
         DescriptorPoolSize[] poolSizes = new DescriptorPoolSize[2];
         poolSizes[0].Type = DescriptorType.UniformBuffer;
-        poolSizes[0].DescriptorCount = (uint) swapChainImages!.Length;
+        poolSizes[0].DescriptorCount = (uint)swapChainImages!.Length;
         poolSizes[1].Type = DescriptorType.CombinedImageSampler;
-        poolSizes[1].DescriptorCount = (uint) swapChainImages!.Length;
+        poolSizes[1].DescriptorCount = (uint)swapChainImages!.Length;
 
         fixed (DescriptorPoolSize* poolSizesPtr = poolSizes)
         fixed (DescriptorPool* descriptorPoolPtr = &descriptorPool)
@@ -1594,9 +1594,9 @@ unsafe class MGSVRenderingApp
             DescriptorPoolCreateInfo poolInfo = new()
             {
                 SType = StructureType.DescriptorPoolCreateInfo,
-                PoolSizeCount = (uint) poolSizes.Length,
+                PoolSizeCount = (uint)poolSizes.Length,
                 PPoolSizes = poolSizesPtr,
-                MaxSets = (uint) swapChainImages.Length
+                MaxSets = (uint)swapChainImages.Length
             };
 
             if (vk!.CreateDescriptorPool(device, in poolInfo, null, descriptorPoolPtr) != Result.Success)
@@ -1617,7 +1617,7 @@ unsafe class MGSVRenderingApp
             {
                 SType = StructureType.DescriptorSetAllocateInfo,
                 DescriptorPool = descriptorPool,
-                DescriptorSetCount = (uint) swapChainImages!.Length,
+                DescriptorSetCount = (uint)swapChainImages!.Length,
                 PSetLayouts = layoutsPtr
             };
 
@@ -1637,7 +1637,7 @@ unsafe class MGSVRenderingApp
             {
                 Buffer = uniformBuffers![i],
                 Offset = 0,
-                Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
+                Range = (ulong)Unsafe.SizeOf<UniformBufferObject>()
             };
 
             DescriptorImageInfo imageInfo = new()
@@ -1672,7 +1672,7 @@ unsafe class MGSVRenderingApp
             };
 
             fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
-                vk!.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, null);
+                vk!.UpdateDescriptorSets(device, (uint)descriptorWrites.Length, descriptorWritesPtr, 0, null);
         }
     }
 
@@ -1680,9 +1680,9 @@ unsafe class MGSVRenderingApp
     {
         CommandBuffer commandBuffer = BeginSingleTimeCommand();
 
-        BufferCopy copyRegion = new(){ Size = size };
+        BufferCopy copyRegion = new() { Size = size };
         vk!.CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, in copyRegion);
-        
+
         EndSingleTimeCommands(commandBuffer);
     }
 
@@ -1694,10 +1694,10 @@ unsafe class MGSVRenderingApp
         {
             if ((typeFilter & (1 << i)) != 0 && (memProperties.MemoryTypes[i].PropertyFlags & properties) == properties)
             {
-                return (uint) i;
+                return (uint)i;
             }
         }
-        
+
         throw new Exception("Failed to find suitable memory type!");
     }
 
@@ -1710,7 +1710,7 @@ unsafe class MGSVRenderingApp
             SType = StructureType.CommandBufferAllocateInfo,
             CommandPool = commandPool,
             Level = CommandBufferLevel.Primary,
-            CommandBufferCount = (uint) commandBuffers.Length
+            CommandBufferCount = (uint)commandBuffers.Length
         };
 
         fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
@@ -1739,7 +1739,7 @@ unsafe class MGSVRenderingApp
             SType = StructureType.RenderPassBeginInfo,
             RenderPass = renderPass,
             Framebuffer = swapChainFramebuffers![imageIndex],
-            RenderArea = 
+            RenderArea =
             {
                 Offset = { X = 0, Y = 0 },
                 Extent = swapChainExtent
@@ -1752,7 +1752,7 @@ unsafe class MGSVRenderingApp
 
         fixed (ClearValue* clearValuesPtr = clearValues)
         {
-            renderPassInfo.ClearValueCount = (uint) clearValues.Length;
+            renderPassInfo.ClearValueCount = (uint)clearValues.Length;
             renderPassInfo.PClearValues = clearValuesPtr;
 
             vk!.CmdBeginRenderPass(commandBuffer, &renderPassInfo, SubpassContents.Inline);
@@ -1761,7 +1761,7 @@ unsafe class MGSVRenderingApp
 
         vk!.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, graphicsPipeline);
 
-        var vertexBuffers = new Buffer[]{ vertexBuffer };
+        var vertexBuffers = new Buffer[] { vertexBuffer };
         var offsets = new ulong[] { 0 };
 
         fixed (ulong* offsetsPtr = offsets)
@@ -1774,7 +1774,7 @@ unsafe class MGSVRenderingApp
 
         vk!.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, pipelineLayout, 0, 1, in descriptorSets![imageIndex], 0, null);
 
-        vk!.CmdDrawIndexed(commandBuffer, (uint) indices!.Length, 1, 0, 0, 0);
+        vk!.CmdDrawIndexed(commandBuffer, (uint)indices!.Length, 1, 0, 0, 0);
 
         vk!.CmdEndRenderPass(commandBuffer);
 
@@ -1822,7 +1822,7 @@ unsafe class MGSVRenderingApp
         {
             model = Matrix4X4<float>.Identity * Matrix4X4.CreateFromAxisAngle<float>(new Vector3D<float>(0, 0, 1), time * Radians(90.0f)),
             view = Matrix4X4.CreateLookAt(new Vector3D<float>(2, 2, 2), new Vector3D<float>(0, 0, 0), new Vector3D<float>(0, 0, 1)),
-            proj = Matrix4X4.CreatePerspectiveFieldOfView(Radians(45.0f), (float) swapChainExtent.Width / swapChainExtent.Height, 0.1f, 10.0f)
+            proj = Matrix4X4.CreatePerspectiveFieldOfView(Radians(45.0f), (float)swapChainExtent.Width / swapChainExtent.Height, 0.1f, 10.0f)
         };
         ubo.proj.M22 *= -1;
 
@@ -1867,12 +1867,12 @@ unsafe class MGSVRenderingApp
         {
             SType = StructureType.SubmitInfo,
         };
-        
+
         var waitSemaphores = stackalloc[] { imageAvailableSemaphores![currentFrame] };
-        var waitStages = stackalloc[] {PipelineStageFlags.ColorAttachmentOutputBit};
+        var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
         var buffer = commandBuffers[currentFrame];
 
-        submitInfo = submitInfo with 
+        submitInfo = submitInfo with
         {
             WaitSemaphoreCount = 1,
             PWaitSemaphores = waitSemaphores,
@@ -1882,7 +1882,7 @@ unsafe class MGSVRenderingApp
         };
 
         var signalSemaphores = stackalloc[] { renderFinishedSemaphores![currentFrame] };
-        submitInfo = submitInfo with 
+        submitInfo = submitInfo with
         {
             SignalSemaphoreCount = 1,
             PSignalSemaphores = signalSemaphores
@@ -1922,14 +1922,14 @@ unsafe class MGSVRenderingApp
         ShaderModuleCreateInfo createInfo = new()
         {
             SType = StructureType.ShaderModuleCreateInfo,
-            CodeSize = (nuint) code.Length,
+            CodeSize = (nuint)code.Length,
         };
 
         ShaderModule shaderModule;
 
         fixed (byte* codePtr = code)
         {
-            createInfo.PCode = (uint*) codePtr;
+            createInfo.PCode = (uint*)codePtr;
 
             if (vk!.CreateShaderModule(device, in createInfo, null, out shaderModule) != Result.Success)
             {
@@ -1981,7 +1981,7 @@ unsafe class MGSVRenderingApp
                 Width = (uint)framebufferSize.X,
                 Height = (uint)framebufferSize.Y
             };
-            
+
             actualExtent.Width = Math.Clamp(actualExtent.Width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width);
             actualExtent.Height = Math.Clamp(actualExtent.Height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height);
 
@@ -2059,7 +2059,7 @@ unsafe class MGSVRenderingApp
             vk!.EnumerateDeviceExtensionProperties(device, (byte*)null, ref extensionCount, availableExtensionsPtr);
         }
 
-        var availableExtensionNames = availableExtensions.Select(extension => Marshal.PtrToStringAnsi((IntPtr) extension.ExtensionName)).ToHashSet();
+        var availableExtensionNames = availableExtensions.Select(extension => Marshal.PtrToStringAnsi((IntPtr)extension.ExtensionName)).ToHashSet();
 
         return deviceExtensions.All(availableExtensionNames.Contains);
     }
@@ -2067,7 +2067,7 @@ unsafe class MGSVRenderingApp
     private QueueFamilyIndices FindQueueFamilies(PhysicalDevice device)
     {
         var indices = new QueueFamilyIndices();
-        
+
         uint queueFamilyCount = 0;
         vk!.GetPhysicalDeviceQueueFamilyProperties(device, ref queueFamilyCount, null);
 
@@ -2107,7 +2107,7 @@ unsafe class MGSVRenderingApp
     {
         var glfwExtensions = window!.VkSurface!.GetRequiredExtensions(out var glfwExtensionCount);
         var extensions = SilkMarshal.PtrToStringArray((nint)glfwExtensions, (int)glfwExtensionCount);
-        
+
         if (EnableValidationLayers)
         {
             return extensions.Append(ExtDebugUtils.ExtensionName).ToArray();
@@ -2142,7 +2142,7 @@ unsafe class MGSVRenderingApp
             DebugUtilsMessengerCallbackDataEXT* pCallbackData,
             void* pUserData)
     {
-        Console.WriteLine($"Validation layer: {Marshal.PtrToStringAnsi((nint) pCallbackData->PMessage)}");
+        Console.WriteLine($"Validation layer: {Marshal.PtrToStringAnsi((nint)pCallbackData->PMessage)}");
 
         return Vk.False;
     }

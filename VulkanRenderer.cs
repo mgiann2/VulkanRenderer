@@ -12,6 +12,7 @@ using Semaphore = Silk.NET.Vulkan.Semaphore;
 unsafe class VulkanRenderer : IDisposable
 {
     private readonly bool EnableValidationLayers;
+    private const int MaxFramesInFlight = 2;
 
     private readonly string[] validationLayers = new[]
     {
@@ -50,11 +51,12 @@ unsafe class VulkanRenderer : IDisposable
     private Pipeline graphicsPipeline;
 
     private CommandPool commandPool;
-    private CommandBuffer commandBuffer;
+    private CommandBuffer[] commandBuffers;
 
-    private Semaphore imageAvailableSemaphore;
-    private Semaphore renderFinishedSemaphore;
-    private Fence inFlightFence;
+    private Semaphore[] imageAvailableSemaphores;
+    private Semaphore[] renderFinishedSemaphores;
+    private Fence[] inFlightFences;
+    private uint currentFrame;
 
     private bool disposedValue;
 
@@ -78,8 +80,8 @@ unsafe class VulkanRenderer : IDisposable
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
         CreateFramebuffers(out swapchainFramebuffers);
         CreateCommandPool(out commandPool);
-        CreateCommandBuffer(out commandBuffer);
-        CreateSyncObjects(out imageAvailableSemaphore, out renderFinishedSemaphore, out inFlightFence);
+        CreateCommandBuffers(out commandBuffers);
+        CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
     }
 
     /// <summary>
@@ -110,24 +112,24 @@ unsafe class VulkanRenderer : IDisposable
 
     public void DrawFrame(double deltaTime)
     {
-        vk.WaitForFences(device, 1, ref inFlightFence, true, ulong.MaxValue);
+        vk.WaitForFences(device, 1, ref inFlightFences[currentFrame], true, ulong.MaxValue);
 
         uint imageIndex = 0;
-        var result = khrSwapchain.AcquireNextImage(device, swapchain, ulong.MaxValue, imageAvailableSemaphore, default, ref imageIndex);
+        var result = khrSwapchain.AcquireNextImage(device, swapchain, ulong.MaxValue, imageAvailableSemaphores[currentFrame], default, ref imageIndex);
         if (result != Result.Success)
         {
             throw new Exception("Failed to acquire next image!");
         }
 
-        vk.ResetFences(device, 1, ref inFlightFence);
+        vk.ResetFences(device, 1, ref inFlightFences[currentFrame]);
 
-        vk.ResetCommandBuffer(commandBuffer, CommandBufferResetFlags.None);
-        RecordCommandBuffer(commandBuffer, imageIndex);
+        vk.ResetCommandBuffer(commandBuffers[currentFrame], CommandBufferResetFlags.None);
+        RecordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
-        var waitSemaphores = stackalloc[] { imageAvailableSemaphore };
+        var waitSemaphores = stackalloc[] { imageAvailableSemaphores[currentFrame] };
         var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
-        var signalSemaphores = stackalloc[] { renderFinishedSemaphore };
-        var buffer = commandBuffer;
+        var signalSemaphores = stackalloc[] { renderFinishedSemaphores[currentFrame] };
+        var buffer = commandBuffers[currentFrame];
 
         SubmitInfo submitInfo = new()
         {
@@ -141,7 +143,7 @@ unsafe class VulkanRenderer : IDisposable
             PSignalSemaphores = signalSemaphores
         };
 
-        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFence) != Result.Success)
+        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
         {
             throw new Exception("Failed to submit draw command buffer!");
         }
@@ -159,6 +161,8 @@ unsafe class VulkanRenderer : IDisposable
         };
 
         khrSwapchain.QueuePresent(presentQueue, in presentInfo);
+
+        currentFrame = (currentFrame + 1) % MaxFramesInFlight;
     }
 
     private void CreateInstance(out Instance instance)
@@ -662,19 +666,24 @@ unsafe class VulkanRenderer : IDisposable
         }
     }
 
-    private void CreateCommandBuffer(out CommandBuffer commandBuffer)
+    private void CreateCommandBuffers(out CommandBuffer[] commandBuffers)
     {
+        commandBuffers = new CommandBuffer[MaxFramesInFlight];
+
         CommandBufferAllocateInfo allocInfo = new()
         {
             SType = StructureType.CommandBufferAllocateInfo,
             CommandPool = commandPool,
             Level = CommandBufferLevel.Primary,
-            CommandBufferCount = 1
+            CommandBufferCount = (uint) commandBuffers.Length
         };
 
-        if (vk.AllocateCommandBuffers(device, in allocInfo, out commandBuffer) != Result.Success)
+        fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
         {
-            throw new Exception("Failed to allocate command buffers!");
+            if (vk.AllocateCommandBuffers(device, in allocInfo, commandBuffersPtr) != Result.Success)
+            {
+                throw new Exception("Failed to allocate command buffers!");
+            }
         }
     }
 
@@ -742,8 +751,12 @@ unsafe class VulkanRenderer : IDisposable
         }
     }
 
-    private void CreateSyncObjects(out Semaphore imageAvailableSemaphore, out Semaphore renderFinishedSemaphore, out Fence inFlightFence)
+    private void CreateSyncObjects(out Semaphore[] imageAvailableSemaphores, out Semaphore[] renderFinishedSemaphores, out Fence[] inFlightFences)
     {
+        imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
+        renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
+        inFlightFences = new Fence[MaxFramesInFlight];
+
         SemaphoreCreateInfo semaphoreInfo = new()
         {
             SType = StructureType.SemaphoreCreateInfo,
@@ -755,11 +768,14 @@ unsafe class VulkanRenderer : IDisposable
             Flags = FenceCreateFlags.SignaledBit
         };
 
-        if (vk.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphore) != Result.Success ||
-            vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphore) != Result.Success ||
-            vk.CreateFence(device, in fenceInfo, null, out inFlightFence) != Result.Success)
+        for (int i = 0; i < MaxFramesInFlight; i++)
         {
-            throw new Exception("Failed to create sync objects!");
+            if (vk.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphores[i]) != Result.Success ||
+                vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphores[i]) != Result.Success ||
+                vk.CreateFence(device, in fenceInfo, null, out inFlightFences[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create sync objects!");
+            }
         }
     }
 
@@ -970,9 +986,12 @@ unsafe class VulkanRenderer : IDisposable
             }
 
             // free unmanaged resources unmanaged objects and override finalizer
-            vk.DestroySemaphore(device, imageAvailableSemaphore, null);
-            vk.DestroySemaphore(device, renderFinishedSemaphore, null);
-            vk.DestroyFence(device, inFlightFence, null);
+            for (int i = 0; i < MaxFramesInFlight; i++)
+            {
+                vk.DestroySemaphore(device, imageAvailableSemaphores[i], null);
+                vk.DestroySemaphore(device, renderFinishedSemaphores[i], null);
+                vk.DestroyFence(device, inFlightFences[i], null);
+            }
 
             vk.DestroyCommandPool(device, commandPool, null);
 
