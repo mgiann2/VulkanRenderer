@@ -10,7 +10,23 @@ using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 
+struct QueueFamilyIndices
+{
+    public uint? GraphicsFamily { get; set; }
+    public uint? PresentFamily { get; set; }
 
+    public bool IsComplete()
+    {
+        return GraphicsFamily.HasValue && PresentFamily.HasValue;
+    }
+}
+
+struct SwapChainSupportDetails
+{
+    public SurfaceCapabilitiesKHR Capabilities;
+    public SurfaceFormatKHR[] Formats;
+    public PresentModeKHR[] PresentModes;
+}
 
 unsafe class VulkanRenderer : IDisposable
 {
@@ -34,7 +50,7 @@ unsafe class VulkanRenderer : IDisposable
         KhrSwapchain.ExtensionName
     };
 
-    private Vk vk;
+    public Vk vk;
     private IWindow window;
     private IVkSurface windowSurface;
     private Instance instance;
@@ -42,9 +58,9 @@ unsafe class VulkanRenderer : IDisposable
     private KhrSurface khrSurface;
     private SurfaceKHR surface;
 
-    private PhysicalDevice physicalDevice;
+    public PhysicalDevice physicalDevice;
 
-    private Device device;
+    public Device device;
     private Queue graphicsQueue;
     private Queue presentQueue;
 
@@ -71,6 +87,8 @@ unsafe class VulkanRenderer : IDisposable
     private bool framebufferResized = false;
     private uint imageIndex;
     private RendererState rendererState = RendererState.Idle;
+
+    public CommandBuffer CurrentCommandBuffer => commandBuffers[currentFrame];
 
     private bool disposedValue;
 
@@ -246,8 +264,6 @@ unsafe class VulkanRenderer : IDisposable
         };
         vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
 
-        vk.CmdDraw(commandBuffers[currentFrame], 3, 1, 0, 0);
-
         rendererState = RendererState.UsingRenderPass;
     }
 
@@ -258,6 +274,12 @@ unsafe class VulkanRenderer : IDisposable
         vk.CmdEndRenderPass(commandBuffers[currentFrame]);
 
         rendererState = RendererState.DrawingFrame;
+    }
+
+    public void DrawVertexBuffer(VertexBuffer vertexBuffer)
+    {
+        vertexBuffer.Bind(commandBuffers[currentFrame]);
+        vk.CmdDraw(commandBuffers[currentFrame], 3, 1, 0, 0);
     }
 
     private void OnFramebufferResize(Vector2D<int> framebufferSize)
@@ -644,15 +666,6 @@ unsafe class VulkanRenderer : IDisposable
             PDynamicStates = dynamicStates
         };
 
-        PipelineVertexInputStateCreateInfo vertexInfo = new()
-        {
-            SType = StructureType.PipelineVertexInputStateCreateInfo,
-            VertexBindingDescriptionCount = 0,
-            PVertexBindingDescriptions = null,
-            VertexAttributeDescriptionCount = 0,
-            PVertexAttributeDescriptions = null
-        };
-
         PipelineInputAssemblyStateCreateInfo assemblyInfo = new()
         {
             SType = StructureType.PipelineInputAssemblyStateCreateInfo,
@@ -707,26 +720,40 @@ unsafe class VulkanRenderer : IDisposable
             throw new Exception("Failed to create pipeline layout!");
         }
 
-        GraphicsPipelineCreateInfo pipelineInfo = new()
+        var bindingDescription = Vertex.GetBindingDescription();
+        var attributeDescriptions = Vertex.GetAttributeDescriptions();
+        fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
         {
-            SType = StructureType.GraphicsPipelineCreateInfo,
-            StageCount = 2,
-            PStages = shaderStagesInfo,
-            PInputAssemblyState = &assemblyInfo,
-            PVertexInputState = &vertexInfo,
-            PViewportState = &viewportInfo,
-            PRasterizationState = &rasterizerInfo,
-            PMultisampleState = &multisampleInfo,
-            PColorBlendState = &colorBlendInfo,
-            PDynamicState = &dynamicStateInfo,
-            Layout = pipelineLayout,
-            RenderPass = renderPass,
-            Subpass = 0
-        };
+            PipelineVertexInputStateCreateInfo vertexInfo = new()
+            {
+                SType = StructureType.PipelineVertexInputStateCreateInfo,
+                VertexBindingDescriptionCount = 1,
+                PVertexBindingDescriptions = &bindingDescription,
+                VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length,
+                PVertexAttributeDescriptions = attributeDescriptionsPtr
+            };
 
-        if (vk.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out graphicsPipeline) != Result.Success)
-        {
-            throw new Exception("Failed to create graphics pipeline!");
+            GraphicsPipelineCreateInfo pipelineInfo = new()
+            {
+                SType = StructureType.GraphicsPipelineCreateInfo,
+                StageCount = 2,
+                PStages = shaderStagesInfo,
+                PInputAssemblyState = &assemblyInfo,
+                PVertexInputState = &vertexInfo,
+                PViewportState = &viewportInfo,
+                PRasterizationState = &rasterizerInfo,
+                PMultisampleState = &multisampleInfo,
+                PColorBlendState = &colorBlendInfo,
+                PDynamicState = &dynamicStateInfo,
+                Layout = pipelineLayout,
+                RenderPass = renderPass,
+                Subpass = 0
+            };
+
+            if (vk.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out graphicsPipeline) != Result.Success)
+            {
+                throw new Exception("Failed to create graphics pipeline!");
+            }
         }
 
         vk.DestroyShaderModule(device, vertexShaderModule, null);
