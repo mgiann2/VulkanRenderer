@@ -31,6 +31,15 @@ if (window.VkSurface is null)
 }
 
 var renderer = new VulkanRenderer(window, true);
+
+window.Render += (double deltaTime) =>
+{
+    renderer.BeginFrame();
+    renderer.BeginRenderPass();
+    renderer.EndRenderPass();
+    renderer.EndFrame();
+};
+
 window.Run();
 
 struct QueueFamilyIndices

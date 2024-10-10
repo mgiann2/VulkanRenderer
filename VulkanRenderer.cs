@@ -10,8 +10,17 @@ using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 
+
+
 unsafe class VulkanRenderer : IDisposable
 {
+    enum RendererState
+    {
+        Idle,
+        DrawingFrame,
+        UsingRenderPass
+    }
+
     private readonly bool EnableValidationLayers;
     private const int MaxFramesInFlight = 2;
 
@@ -60,6 +69,8 @@ unsafe class VulkanRenderer : IDisposable
 
     private uint currentFrame;
     private bool framebufferResized = false;
+    private uint imageIndex;
+    private RendererState rendererState = RendererState.Idle;
 
     private bool disposedValue;
 
@@ -86,7 +97,6 @@ unsafe class VulkanRenderer : IDisposable
         CreateCommandBuffers(out commandBuffers);
         CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
-        window.Render += DrawFrame;
         window.FramebufferResize += OnFramebufferResize;
     }
 
@@ -95,32 +105,11 @@ unsafe class VulkanRenderer : IDisposable
     /// </summary>
     public void BeginFrame()
     {
+        if (rendererState != RendererState.Idle) throw new Exception("BeginFrame called before current frame has been ended!");
 
-    }
-
-    /// <summary>
-    /// Submits a new frame to be drawn
-    /// </summary>
-    public void EndFrame()
-    {
-
-    }
-
-    public void BeginRenderPass()
-    {
-
-    }
-
-    public void EndRenderPass()
-    {
-
-    }
-
-    private void DrawFrame(double deltaTime)
-    {
         vk.WaitForFences(device, 1, ref inFlightFences[currentFrame], true, ulong.MaxValue);
 
-        uint imageIndex = 0;
+        imageIndex = 0;
         var result = khrSwapchain.AcquireNextImage(device, swapchain, ulong.MaxValue, imageAvailableSemaphores[currentFrame], default, ref imageIndex);
         if (result == Result.ErrorOutOfDateKhr)
         {
@@ -134,13 +123,37 @@ unsafe class VulkanRenderer : IDisposable
 
         vk.ResetFences(device, 1, ref inFlightFences[currentFrame]);
 
+        // Begin command buffer
         vk.ResetCommandBuffer(commandBuffers[currentFrame], CommandBufferResetFlags.None);
-        RecordCommandBuffer(commandBuffers[currentFrame], imageIndex);
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+        };
+
+        if (vk.BeginCommandBuffer(commandBuffers[currentFrame], in beginInfo) != Result.Success)
+        {
+            throw new Exception("Failed to begin command buffer!");
+        }
+
+        rendererState = RendererState.DrawingFrame;
+    }
+
+    /// <summary>
+    /// Submits a new frame to be drawn
+    /// </summary>
+    public void EndFrame()
+    {
+        if (rendererState != RendererState.DrawingFrame) throw new Exception("EndFrame called either frame has been started or render pass commands have been submitted!");
+
+        var commandBuffer = commandBuffers[currentFrame];
+        if (vk.EndCommandBuffer(commandBuffer) != Result.Success)
+        {
+            throw new Exception("Failed to end command buffer!");
+        }
 
         var waitSemaphores = stackalloc[] { imageAvailableSemaphores[currentFrame] };
         var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
         var signalSemaphores = stackalloc[] { renderFinishedSemaphores[currentFrame] };
-        var buffer = commandBuffers[currentFrame];
 
         SubmitInfo submitInfo = new()
         {
@@ -149,7 +162,7 @@ unsafe class VulkanRenderer : IDisposable
             PWaitSemaphores = waitSemaphores,
             PWaitDstStageMask = waitStages,
             CommandBufferCount = 1,
-            PCommandBuffers = &buffer,
+            PCommandBuffers = &commandBuffer,
             SignalSemaphoreCount = 1,
             PSignalSemaphores = signalSemaphores
         };
@@ -161,6 +174,7 @@ unsafe class VulkanRenderer : IDisposable
 
         var swapchains = stackalloc[] { swapchain };
 
+        uint idx = imageIndex;
         PresentInfoKHR presentInfo = new()
         {
             SType = StructureType.PresentInfoKhr,
@@ -168,10 +182,10 @@ unsafe class VulkanRenderer : IDisposable
             PWaitSemaphores = signalSemaphores,
             SwapchainCount = 1,
             PSwapchains = swapchains,
-            PImageIndices = &imageIndex
+            PImageIndices = &idx
         };
 
-        result = khrSwapchain.QueuePresent(presentQueue, in presentInfo);
+        var result = khrSwapchain.QueuePresent(presentQueue, in presentInfo);
         if (result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || framebufferResized)
         {
             framebufferResized = false;
@@ -183,6 +197,67 @@ unsafe class VulkanRenderer : IDisposable
         }
 
         currentFrame = (currentFrame + 1) % MaxFramesInFlight;
+        rendererState = RendererState.Idle;
+    }
+
+    public void BeginRenderPass()
+    {
+        if (rendererState != RendererState.DrawingFrame) throw new Exception("Renderer either has not started a frame or has already started a render pass!");
+
+        RenderPassBeginInfo renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassBeginInfo,
+            RenderPass = renderPass,
+            Framebuffer = swapchainFramebuffers[imageIndex],
+            RenderArea = new()
+            {
+                Extent = swapchainExtent,
+                Offset = { X = 0, Y = 0 }
+            }
+        };
+
+        ClearValue clearColor = new()
+        {
+            Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f },
+        };
+
+        renderPassInfo.ClearValueCount = 1;
+        renderPassInfo.PClearValues = &clearColor;
+
+        vk.CmdBeginRenderPass(commandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
+
+        vk.CmdBindPipeline(commandBuffers[currentFrame], PipelineBindPoint.Graphics, graphicsPipeline);
+
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = swapchainExtent.Width,
+            Height = swapchainExtent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f,
+        };
+        vk.CmdSetViewport(commandBuffers[currentFrame], 0, 1, in viewport);
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapchainExtent
+        };
+        vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
+
+        vk.CmdDraw(commandBuffers[currentFrame], 3, 1, 0, 0);
+
+        rendererState = RendererState.UsingRenderPass;
+    }
+
+    public void EndRenderPass()
+    {
+        if (rendererState != RendererState.UsingRenderPass) throw new Exception("Tried to end render pass before beginning a frame or render pass!");
+
+        vk.CmdEndRenderPass(commandBuffers[currentFrame]);
+
+        rendererState = RendererState.DrawingFrame;
     }
 
     private void OnFramebufferResize(Vector2D<int> framebufferSize)
