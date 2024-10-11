@@ -45,81 +45,92 @@ struct Vertex
     }
 }
 
-unsafe class VertexBuffer : IDisposable
+unsafe abstract class AbstractBuffer : IDisposable
 {
-    public ulong Size;
-
-    private readonly Vk vk;
-    private readonly Device device;
-    private readonly PhysicalDevice physicalDevice;
-    private Buffer buffer;
-    private DeviceMemory bufferMemory;
+    protected readonly VulkanRenderer renderer;
+    protected Buffer buffer;
+    protected DeviceMemory bufferMemory;
 
     private bool disposedValue;
 
-    public VertexBuffer(VulkanRenderer renderer, Vertex[] vertices)
+    public AbstractBuffer(VulkanRenderer renderer)
     {
-        vk = renderer.Vk;
-        device = renderer.Device;
-        physicalDevice = renderer.PhysicalDevice;
-        Size = (ulong) (Unsafe.SizeOf<Vertex>() * vertices.Length);
+        this.renderer = renderer;
+    }
 
-        // create buffer
+    public abstract void Bind();
+
+    protected void CreateBuffer(ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, out Buffer newBuffer, out DeviceMemory newBufferMemory)
+    {
         BufferCreateInfo bufferInfo = new()
         {
             SType = StructureType.BufferCreateInfo,
-            Size = Size,
-            Usage = BufferUsageFlags.VertexBufferBit,
+            Size = size,
+            Usage = usage,
             SharingMode = SharingMode.Exclusive
         };
 
-        if (vk.CreateBuffer(device, in bufferInfo, null, out buffer) != Result.Success)
+        if (renderer.Vk.CreateBuffer(renderer.Device, in bufferInfo, null, out newBuffer) != Result.Success)
         {
-            throw new Exception("Unable to create vertex buffer!");
+            throw new Exception("Failed to create buffer!");
         }
 
-        // allocate memory
-        MemoryRequirements memRequirements;
-        vk.GetBufferMemoryRequirements(device, buffer, out memRequirements);
-        
+        MemoryRequirements memoryRequirements;
+        renderer.Vk.GetBufferMemoryRequirements(renderer.Device, newBuffer, out memoryRequirements);
+
         MemoryAllocateInfo allocInfo = new()
         {
             SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits,
-                    MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit),
+            AllocationSize = memoryRequirements.Size,
+            MemoryTypeIndex = FindMemoryType(memoryRequirements.MemoryTypeBits, properties)
         };
 
-        if (vk.AllocateMemory(device, in allocInfo, null, out bufferMemory) != Result.Success)
+        if (renderer.Vk.AllocateMemory(renderer.Device, in allocInfo, null, out newBufferMemory) != Result.Success)
         {
-            throw new Exception("Failed to allocate memory for vertex buffer!");
+            throw new Exception("Failed to allocate buffer memory!");
         }
 
-        vk.BindBufferMemory(device, buffer, bufferMemory, 0);
-
-        // fill vertex buffer
-        void* data;
-        vk.MapMemory(device, bufferMemory, 0, bufferInfo.Size, 0, &data);
-        vertices.AsSpan().CopyTo(new Span<Vertex>(data, vertices.Length));
-        vk.UnmapMemory(device, bufferMemory);
+        renderer.Vk.BindBufferMemory(renderer.Device, newBuffer, newBufferMemory, 0);
     }
 
-    public void Bind(CommandBuffer commandBuffer)
+    protected void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
     {
-        Buffer[] vertexBuffers = new[]{ buffer };
-        ulong[] offsets = new ulong[] { 0 };
-
-        fixed (Buffer* vertexBuffersPtr = vertexBuffers)
-        fixed (ulong* offsetsPtr = offsets)
+        CommandBufferAllocateInfo allocInfo = new()
         {
-            vk.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffersPtr, offsetsPtr);
-        }
+            SType = StructureType.CommandBufferAllocateInfo,
+            Level = CommandBufferLevel.Primary,
+            CommandPool = renderer.CommandPool,
+            CommandBufferCount = 1
+        };
+
+        CommandBuffer commandBuffer;
+        renderer.Vk.AllocateCommandBuffers(renderer.Device, in allocInfo, out commandBuffer);
+
+        CommandBufferBeginInfo beginInfo = new() { SType = StructureType.CommandBufferBeginInfo };
+
+        BufferCopy copyRegion = new() { Size = size };
+
+        renderer.Vk.BeginCommandBuffer(commandBuffer, in beginInfo);
+        renderer.Vk.CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, in copyRegion);
+        renderer.Vk.EndCommandBuffer(commandBuffer);
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+            CommandBufferCount = 1,
+            PCommandBuffers = &commandBuffer
+        };
+
+        renderer.Vk.QueueSubmit(renderer.GraphicsQueue, 1, in submitInfo, default);
+        renderer.Vk.DeviceWaitIdle(renderer.Device);
+
+        renderer.Vk.FreeCommandBuffers(renderer.Device, renderer.CommandPool, 1, in commandBuffer);
     }
 
-    private uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
+    protected uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
     {
         PhysicalDeviceMemoryProperties memProperties;
-        vk.GetPhysicalDeviceMemoryProperties(physicalDevice, out memProperties);
+        renderer.Vk.GetPhysicalDeviceMemoryProperties(renderer.PhysicalDevice, out memProperties);
 
         for (int i = 0; i < memProperties.MemoryTypeCount; i++)
         {
@@ -130,16 +141,16 @@ unsafe class VertexBuffer : IDisposable
         throw new Exception("Unable to find suitable memory type!");
     }
 
+    ~AbstractBuffer()
+    {
+        Dispose(disposing: false);
+    }
+
     public void Dispose()
     {
         Dispose(disposing: true);
         GC.SuppressFinalize(this);
-    }
-
-    ~VertexBuffer()
-    {
-       Dispose(disposing: false);
-    }
+    }   
 
     protected virtual void Dispose(bool disposing)
     {
@@ -151,10 +162,91 @@ unsafe class VertexBuffer : IDisposable
             }
 
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyBuffer(device, buffer, null);
-            vk.FreeMemory(device, bufferMemory, null);
+            renderer.Vk.DestroyBuffer(renderer.Device, buffer, null);
+            renderer.Vk.FreeMemory(renderer.Device, bufferMemory, null);
 
             disposedValue = true;
         }
+    }
+}
+
+unsafe class VertexBuffer : AbstractBuffer
+{
+    public uint VertexCount { get; private set; }
+
+    public VertexBuffer(VulkanRenderer renderer, Vertex[] vertices) : base(renderer)
+    {
+        VertexCount = (uint) vertices.Length;
+        ulong bufferSize = (ulong) (Unsafe.SizeOf<Vertex>() * vertices.Length);
+
+        Buffer stagingBuffer;
+        DeviceMemory stagingBufferMemory;
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit,
+                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                     out stagingBuffer, out stagingBufferMemory);
+
+        // fill staging buffer
+        void* data;
+        renderer.Vk.MapMemory(renderer.Device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        vertices.AsSpan().CopyTo(new Span<Vertex>(data, vertices.Length));
+        renderer.Vk.UnmapMemory(renderer.Device, stagingBufferMemory);
+
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
+                     MemoryPropertyFlags.DeviceLocalBit, out buffer, out bufferMemory);
+
+        // copy staging buffer to vertex buffer on device
+        CopyBuffer(stagingBuffer, buffer, bufferSize);
+
+        renderer.Vk.DestroyBuffer(renderer.Device, stagingBuffer, null);
+        renderer.Vk.FreeMemory(renderer.Device, stagingBufferMemory, null);
+    }
+
+    public override void Bind()
+    {
+        Buffer[] vertexBuffers = new[]{ buffer };
+        ulong[] offsets = new ulong[] { 0 };
+
+        fixed (Buffer* vertexBuffersPtr = vertexBuffers)
+        fixed (ulong* offsetsPtr = offsets)
+        {
+            renderer.Vk.CmdBindVertexBuffers(renderer.CurrentCommandBuffer, 0, 1, vertexBuffersPtr, offsetsPtr);
+        }
+    }
+}
+
+unsafe class IndexBuffer : AbstractBuffer
+{
+    public uint IndexCount { get; private set; }
+
+    public IndexBuffer(VulkanRenderer renderer, ushort[] indices) : base(renderer)
+    {
+        IndexCount = (uint) indices.Length;
+        ulong bufferSize = (ulong) (Unsafe.SizeOf<ushort>() * indices.Length);
+
+        Buffer stagingBuffer;
+        DeviceMemory stagingBufferMemory;
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit,
+                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                     out stagingBuffer, out stagingBufferMemory);
+
+        // fill staging buffer
+        void* data;
+        renderer.Vk.MapMemory(renderer.Device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        indices.AsSpan().CopyTo(new Span<ushort>(data, indices.Length));
+        renderer.Vk.UnmapMemory(renderer.Device, stagingBufferMemory);
+
+        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit,
+                     MemoryPropertyFlags.DeviceLocalBit, out buffer, out bufferMemory);
+
+        // copy staging buffer to index buffer on device
+        CopyBuffer(stagingBuffer, buffer, bufferSize);
+
+        renderer.Vk.DestroyBuffer(renderer.Device, stagingBuffer, null);
+        renderer.Vk.FreeMemory(renderer.Device, stagingBufferMemory, null);
+    }
+
+    public override void Bind()
+    {
+        renderer.Vk.CmdBindIndexBuffer(renderer.CurrentCommandBuffer, buffer, 0, IndexType.Uint16);
     }
 }

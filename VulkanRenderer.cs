@@ -28,6 +28,13 @@ struct SwapChainSupportDetails
     public PresentModeKHR[] PresentModes;
 }
 
+// struct UniformBufferObject
+// {
+//     public Matrix4X4<float> model;
+//     public Matrix4X4<float> view;
+//     public Matrix4X4<float> proj;
+// }
+
 unsafe class VulkanRenderer : IDisposable
 {
     enum RendererState
@@ -61,7 +68,7 @@ unsafe class VulkanRenderer : IDisposable
     private KhrSurface khrSurface;
     private SurfaceKHR surface;
 
-    private Queue graphicsQueue;
+    public Queue GraphicsQueue;
     private Queue presentQueue;
 
     private KhrSwapchain khrSwapchain;
@@ -76,7 +83,7 @@ unsafe class VulkanRenderer : IDisposable
     private PipelineLayout pipelineLayout;
     private Pipeline graphicsPipeline;
 
-    private CommandPool commandPool;
+    public CommandPool CommandPool;
     private CommandBuffer[] commandBuffers;
 
     private Semaphore[] imageAvailableSemaphores;
@@ -105,13 +112,13 @@ unsafe class VulkanRenderer : IDisposable
         CreateInstance(out instance);
         CreateSurface(out khrSurface, out surface);
         PickPhysicalDevice(out PhysicalDevice);
-        CreateLogicalDevice(out Device, out graphicsQueue, out presentQueue);
+        CreateLogicalDevice(out Device, out GraphicsQueue, out presentQueue);
         CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
         CreateImageViews(out swapchainImageViews);
         CreateRenderPass(out renderPass);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
         CreateFramebuffers(out swapchainFramebuffers);
-        CreateCommandPool(out commandPool);
+        CreateCommandPool(out CommandPool);
         CreateCommandBuffers(out commandBuffers);
         CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
@@ -185,7 +192,7 @@ unsafe class VulkanRenderer : IDisposable
             PSignalSemaphores = signalSemaphores
         };
 
-        if (Vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
+        if (Vk.QueueSubmit(GraphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
         {
             throw new Exception("Failed to submit draw command buffer!");
         }
@@ -276,10 +283,17 @@ unsafe class VulkanRenderer : IDisposable
         rendererState = RendererState.DrawingFrame;
     }
 
-    public void DrawVertexBuffer(VertexBuffer vertexBuffer)
+    public void Draw(VertexBuffer vertexBuffer)
     {
-        vertexBuffer.Bind(commandBuffers[currentFrame]);
-        Vk.CmdDraw(commandBuffers[currentFrame], 3, 1, 0, 0);
+        vertexBuffer.Bind();
+        Vk.CmdDraw(commandBuffers[currentFrame], vertexBuffer.VertexCount, 1, 0, 0);
+    }
+
+    public void DrawIndexed(VertexBuffer vertexBuffer, IndexBuffer indexBuffer)
+    {
+        vertexBuffer.Bind();
+        indexBuffer.Bind();
+        Vk.CmdDrawIndexed(CurrentCommandBuffer, indexBuffer.IndexCount, 1, 0, 0, 0);
     }
 
     private void OnFramebufferResize(Vector2D<int> framebufferSize)
@@ -833,7 +847,7 @@ unsafe class VulkanRenderer : IDisposable
         CommandBufferAllocateInfo allocInfo = new()
         {
             SType = StructureType.CommandBufferAllocateInfo,
-            CommandPool = commandPool,
+            CommandPool = CommandPool,
             Level = CommandBufferLevel.Primary,
             CommandBufferCount = (uint) commandBuffers.Length
         };
@@ -1153,7 +1167,7 @@ unsafe class VulkanRenderer : IDisposable
                 Vk.DestroyFence(Device, inFlightFences[i], null);
             }
 
-            Vk.DestroyCommandPool(Device, commandPool, null);
+            Vk.DestroyCommandPool(Device, CommandPool, null);
 
             CleanupSwapchain();
 
