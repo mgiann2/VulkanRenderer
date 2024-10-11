@@ -49,19 +49,19 @@ unsafe class VertexBuffer : IDisposable
 {
     public ulong Size;
 
-    private Vk vk;
-    private Device device;
-    private PhysicalDevice physicalDevice;
+    private readonly Vk vk;
+    private readonly Device device;
+    private readonly PhysicalDevice physicalDevice;
     private Buffer buffer;
     private DeviceMemory bufferMemory;
 
     private bool disposedValue;
 
-    public VertexBuffer(Vk vk, Device device, PhysicalDevice physicalDevice, Vertex[] vertices)
+    public VertexBuffer(VulkanRenderer renderer, Vertex[] vertices)
     {
-        this.vk = vk;
-        this.device = device;
-        this.physicalDevice = physicalDevice;
+        vk = renderer.Vk;
+        device = renderer.Device;
+        physicalDevice = renderer.PhysicalDevice;
         Size = (ulong) (Unsafe.SizeOf<Vertex>() * vertices.Length);
 
         // create buffer

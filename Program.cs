@@ -23,7 +23,7 @@ Vertex[] vertices = new Vertex[]
     new Vertex() { pos = new Vector2D<float>(0.5f, 0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f) },
     new Vertex() { pos = new Vector2D<float>(-0.5f, 0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f) },
 };
-VertexBuffer vertexBuffer = new(renderer.vk, renderer.device, renderer.physicalDevice, vertices);
+VertexBuffer vertexBuffer = new(renderer, vertices);
 
 window.Render += (double deltaTime) =>
 {
