@@ -98,12 +98,12 @@ readonly struct IndexBuffer
     public uint IndexCount { get; init; }
 }
 
-// struct UniformBufferObject
-// {
-//     public Matrix4X4<float> model;
-//     public Matrix4X4<float> view;
-//     public Matrix4X4<float> proj;
-// }
+struct UniformBufferObject
+{
+    public Matrix4X4<float> model;
+    public Matrix4X4<float> view;
+    public Matrix4X4<float> proj;
+}
 
 unsafe class VulkanRenderer : IDisposable
 {
@@ -138,7 +138,7 @@ unsafe class VulkanRenderer : IDisposable
     KhrSurface khrSurface;
     SurfaceKHR surface;
 
-    Queue GraphicsQueue;
+    Queue graphicsQueue;
     Queue presentQueue;
 
     KhrSwapchain khrSwapchain;
@@ -150,10 +150,17 @@ unsafe class VulkanRenderer : IDisposable
     Framebuffer[] swapchainFramebuffers;
 
     RenderPass renderPass;
+    DescriptorSetLayout descriptorSetLayout;
     PipelineLayout pipelineLayout;
     Pipeline graphicsPipeline;
 
-    CommandPool CommandPool;
+    Buffer[] uniformBuffers;
+    DeviceMemory[] uniformBufferMemory;
+
+    DescriptorPool descriptorPool;
+    DescriptorSet[] descriptorSets;
+
+    CommandPool commandPool;
     CommandBuffer[] commandBuffers;
 
     Semaphore[] imageAvailableSemaphores;
@@ -166,7 +173,7 @@ unsafe class VulkanRenderer : IDisposable
     RendererState rendererState = RendererState.Idle;
 
     bool disposedValue;
-
+    
     public VulkanRenderer(IWindow window, bool enableValidationLayers = false)
     {
         vk = Vk.GetApi();
@@ -180,14 +187,19 @@ unsafe class VulkanRenderer : IDisposable
         CreateInstance(out instance);
         CreateSurface(out khrSurface, out surface);
         PickPhysicalDevice(out physicalDevice);
-        CreateLogicalDevice(out device, out GraphicsQueue, out presentQueue);
+        CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
         CreateImageViews(out swapchainImageViews);
         CreateRenderPass(out renderPass);
+        CreateDescriptorSetLayout(out descriptorSetLayout);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
         CreateFramebuffers(out swapchainFramebuffers);
-        CreateCommandPool(out CommandPool);
+        CreateCommandPool(out commandPool);
         CreateCommandBuffers(out commandBuffers);
+        CreateDescriptorSetLayout(out descriptorSetLayout);
+        CreateUniformBuffers(out uniformBuffers, out uniformBufferMemory);
+        CreateDescriptorPool(out descriptorPool);
+        CreateDescriptorSets(out descriptorSets);
         CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
         window.FramebufferResize += OnFramebufferResize;
@@ -260,7 +272,7 @@ unsafe class VulkanRenderer : IDisposable
             PSignalSemaphores = signalSemaphores
         };
 
-        if (vk.QueueSubmit(GraphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
+        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
         {
             throw new Exception("Failed to submit draw command buffer!");
         }
@@ -338,6 +350,10 @@ unsafe class VulkanRenderer : IDisposable
             Extent = swapchainExtent
         };
         vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
+
+        // TODO: Determine if there is better location for binding descriptor sets
+        vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
+                                 pipelineLayout, 0, 1, in descriptorSets[currentFrame], 0, default);
 
         rendererState = RendererState.UsingRenderPass;
     }
@@ -451,6 +467,14 @@ unsafe class VulkanRenderer : IDisposable
         vk.FreeMemory(device, indexBuffer.BufferMemory, null);
     }
 
+    public void UpdateUniformBuffer(UniformBufferObject ubo)
+    {
+        void* data;
+        vk.MapMemory(device, uniformBufferMemory[currentFrame], 0, (ulong)Unsafe.SizeOf<UniformBufferObject>(), 0, &data);
+        new Span<UniformBufferObject>(data, 1)[0] = ubo;
+        vk.UnmapMemory(device, uniformBufferMemory[currentFrame]);
+    }
+
     void CreateBuffer(ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, out Buffer newBuffer, out DeviceMemory newBufferMemory)
     {
         BufferCreateInfo bufferInfo = new()
@@ -490,7 +514,7 @@ unsafe class VulkanRenderer : IDisposable
         {
             SType = StructureType.CommandBufferAllocateInfo,
             Level = CommandBufferLevel.Primary,
-            CommandPool = CommandPool,
+            CommandPool = commandPool,
             CommandBufferCount = 1
         };
 
@@ -512,10 +536,10 @@ unsafe class VulkanRenderer : IDisposable
             PCommandBuffers = &commandBuffer
         };
 
-        vk.QueueSubmit(GraphicsQueue, 1, in submitInfo, default);
+        vk.QueueSubmit(graphicsQueue, 1, in submitInfo, default);
         vk.DeviceWaitIdle(device);
 
-        vk.FreeCommandBuffers(device, CommandPool, 1, in commandBuffer);
+        vk.FreeCommandBuffers(device, commandPool, 1, in commandBuffer);
     }
 
     uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
@@ -882,6 +906,29 @@ unsafe class VulkanRenderer : IDisposable
         }
     }
 
+    void CreateDescriptorSetLayout(out DescriptorSetLayout descriptorSetLayout) 
+    {
+        DescriptorSetLayoutBinding uboLayoutBinding = new()
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.UniformBuffer,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.VertexBit
+        };
+
+        DescriptorSetLayoutCreateInfo layoutInfo = new()
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &uboLayoutBinding
+        };
+
+        if (vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out descriptorSetLayout) != Result.Success)
+        {
+            throw new Exception("Failed to create descriptor set layout!");
+        }
+    }
+
     void CreateGraphicsPipeline(out Pipeline graphicsPipeline, out PipelineLayout layout, string vertexShaderPath, string fragmentShaderPath)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(vertexShaderPath);
@@ -936,7 +983,7 @@ unsafe class VulkanRenderer : IDisposable
             PolygonMode = PolygonMode.Fill,
             LineWidth = 1.0f,
             CullMode = CullModeFlags.BackBit,
-            FrontFace = FrontFace.Clockwise
+            FrontFace = FrontFace.CounterClockwise
         };
 
         PipelineMultisampleStateCreateInfo multisampleInfo = new()
@@ -960,14 +1007,19 @@ unsafe class VulkanRenderer : IDisposable
             PAttachments = &colorBlendAttachment
         };
 
-        PipelineLayoutCreateInfo pipelineLayoutInfo = new()
+        fixed (DescriptorSetLayout* descriptorSetLayoutPtr = &descriptorSetLayout)
         {
-            SType = StructureType.PipelineLayoutCreateInfo
-        };
+            PipelineLayoutCreateInfo pipelineLayoutInfo = new()
+            {
+                SType = StructureType.PipelineLayoutCreateInfo,
+                SetLayoutCount = 1,
+                PSetLayouts = descriptorSetLayoutPtr
+            };
 
-        if (vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out layout) != Result.Success)
-        {
-            throw new Exception("Failed to create pipeline layout!");
+            if (vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out layout) != Result.Success)
+            {
+                throw new Exception("Failed to create pipeline layout!");
+            }
         }
 
         var bindingDescription = Vertex.GetBindingDescription();
@@ -1033,6 +1085,92 @@ unsafe class VulkanRenderer : IDisposable
         return shaderModule;
     }
 
+    void CreateUniformBuffers(out Buffer[] uniformBuffers, out DeviceMemory[] uniformBuffersMemory)
+    {
+        ulong bufferSize = (ulong) (Unsafe.SizeOf<UniformBufferObject>());
+
+        uniformBuffers = new Buffer[MaxFramesInFlight];
+        uniformBuffersMemory = new DeviceMemory[MaxFramesInFlight];
+
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            CreateBuffer(bufferSize, BufferUsageFlags.UniformBufferBit,
+                         MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                         out uniformBuffers[i], out uniformBuffersMemory[i]);
+        }
+    }
+
+    void CreateDescriptorPool(out DescriptorPool descriptorPool)
+    {
+        DescriptorPoolSize poolSize = new()
+        {
+            Type = DescriptorType.UniformBuffer,
+            DescriptorCount = (uint) MaxFramesInFlight
+        };
+
+        DescriptorPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &poolSize,
+            MaxSets = (uint) MaxFramesInFlight
+        };
+
+        if (vk.CreateDescriptorPool(device, in poolInfo, null, out descriptorPool) != Result.Success)
+        {
+            throw new Exception("Failed to create descriptor pool!");
+        }
+    }
+
+    void CreateDescriptorSets(out DescriptorSet[] descriptorSets)
+    {
+        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+        Array.Fill(layouts, descriptorSetLayout);
+
+        fixed (DescriptorSetLayout* layoutsPtr = layouts)
+        {
+            DescriptorSetAllocateInfo allocInfo = new()
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = descriptorPool,
+                DescriptorSetCount = (uint) MaxFramesInFlight,
+                PSetLayouts = layoutsPtr 
+            };
+            
+            descriptorSets = new DescriptorSet[MaxFramesInFlight];
+            fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+            {
+                if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
+                {
+                    throw new Exception("Failed to allocate descriptor sets!");
+                }
+            }
+        }
+
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            DescriptorBufferInfo bufferInfo = new()
+            {
+                Buffer = uniformBuffers[i],
+                Offset = 0,
+                Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
+            };
+
+            WriteDescriptorSet descriptorWrite = new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &bufferInfo
+            };
+
+            vk.UpdateDescriptorSets(device, 1, in descriptorWrite, 0, default);
+        }
+    }
+
     void CreateFramebuffers(out Framebuffer[] framebuffers)
     {
         framebuffers = new Framebuffer[swapchainImageViews.Length];
@@ -1083,7 +1221,7 @@ unsafe class VulkanRenderer : IDisposable
         CommandBufferAllocateInfo allocInfo = new()
         {
             SType = StructureType.CommandBufferAllocateInfo,
-            CommandPool = CommandPool,
+            CommandPool = commandPool,
             Level = CommandBufferLevel.Primary,
             CommandBufferCount = (uint) commandBuffers.Length
         };
@@ -1403,11 +1541,20 @@ unsafe class VulkanRenderer : IDisposable
                 vk.DestroyFence(device, inFlightFences[i], null);
             }
 
-            vk.DestroyCommandPool(device, CommandPool, null);
+            vk.DestroyCommandPool(device, commandPool, null);
 
             CleanupSwapchain();
 
             vk.DestroyPipelineLayout(device, pipelineLayout, null);
+
+            for (int i = 0; i < MaxFramesInFlight; i++)
+            {
+                vk.DestroyBuffer(device, uniformBuffers[i], null);
+                vk.FreeMemory(device, uniformBufferMemory[i], null);
+            }
+            vk.DestroyDescriptorPool(device, descriptorPool, null);
+            vk.DestroyDescriptorSetLayout(device, descriptorSetLayout, null);
+
             vk.DestroyRenderPass(device, renderPass, null);
 
             vk.DestroyDevice(device, null);
