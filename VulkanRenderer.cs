@@ -32,7 +32,7 @@ struct SwapChainSupportDetails
 
 struct Vertex
 {
-    public Vector2D<float> pos;
+    public Vector3D<float> pos;
     public Vector3D<float> color;
     public Vector2D<float> texCoord;
 
@@ -177,6 +177,10 @@ unsafe class VulkanRenderer : IDisposable
     Sampler textureSampler;
     DeviceMemory textureImageMemory;
 
+    Image depthImage;
+    ImageView depthImageView;
+    DeviceMemory depthImageMemory;
+
     Semaphore[] imageAvailableSemaphores;
     Semaphore[] renderFinishedSemaphores;
     Fence[] inFlightFences;
@@ -207,6 +211,7 @@ unsafe class VulkanRenderer : IDisposable
         CreateRenderPass(out renderPass);
         CreateDescriptorSetLayout(out descriptorSetLayout);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
+        CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
         CreateFramebuffers(out swapchainFramebuffers);
         CreateCommandPool(out commandPool);
         CreateTextureImage("textures/texture.jpg", out textureImage, out textureImageMemory);
@@ -338,13 +343,15 @@ unsafe class VulkanRenderer : IDisposable
             }
         };
 
-        ClearValue clearColor = new()
-        {
-            Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f },
+        ClearValue[] clearColors = new ClearValue[] 
+        { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
         };
 
-        renderPassInfo.ClearValueCount = 1;
-        renderPassInfo.PClearValues = &clearColor;
+        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
+        fixed (ClearValue* clearColorsPtr = clearColors)
+            renderPassInfo.PClearValues = clearColorsPtr;
 
         vk.CmdBeginRenderPass(commandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
 
@@ -787,6 +794,10 @@ unsafe class VulkanRenderer : IDisposable
 
     void CleanupSwapchain()
     {
+        vk.DestroyImageView(device, depthImageView, null);
+        vk.FreeMemory(device, depthImageMemory, null);
+        vk.DestroyImage(device, depthImage, null);
+
         foreach (var framebuffer in swapchainFramebuffers)
         {
             vk.DestroyFramebuffer(device, framebuffer, null);
@@ -815,6 +826,7 @@ unsafe class VulkanRenderer : IDisposable
 
         CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
         CreateImageViews(out swapchainImageViews);
+        CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
         CreateFramebuffers(out swapchainFramebuffers);
     }
 
@@ -824,7 +836,7 @@ unsafe class VulkanRenderer : IDisposable
 
         for (int i = 0; i < swapchainImages.Length; i++)
         {
-            imageViews[i] = CreateImageView(swapchainImages[i], swapchainImageFormat);
+            imageViews[i] = CreateImageView(swapchainImages[i], swapchainImageFormat, ImageAspectFlags.ColorBit);
         }
     }
 
@@ -848,33 +860,56 @@ unsafe class VulkanRenderer : IDisposable
             Layout = ImageLayout.ColorAttachmentOptimal
         };
 
+        AttachmentDescription depthAttachment = new()
+        {
+            Format = FindDepthFormat(),
+            Samples = SampleCountFlags.Count1Bit,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.DontCare,
+            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilStoreOp = AttachmentStoreOp.DontCare,
+            InitialLayout = ImageLayout.Undefined,
+            FinalLayout = ImageLayout.DepthStencilAttachmentOptimal
+        };
+        
+        AttachmentReference depthAttachmentRef = new()
+        {
+            Attachment = 1,
+            Layout = ImageLayout.DepthStencilAttachmentOptimal
+        };
+
         SubpassDescription subpass = new()
         {
             PipelineBindPoint = PipelineBindPoint.Graphics,
             ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachmentRef
+            PColorAttachments = &colorAttachmentRef,
+            PDepthStencilAttachment = &depthAttachmentRef
         };
 
         SubpassDependency dependency = new()
         {
             SrcSubpass = Vk.SubpassExternal,
             DstSubpass = 0,
-            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.LateFragmentTestsBit,
             SrcAccessMask = 0,
-            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
-            DstAccessMask = AccessFlags.ColorAttachmentWriteBit,
+            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
+            DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit,
         };
+
+        var attachments = new AttachmentDescription[] { colorAttachment, depthAttachment };
 
         RenderPassCreateInfo renderPassInfo = new()
         {
             SType = StructureType.RenderPassCreateInfo,
-            AttachmentCount = 1,
-            PAttachments = &colorAttachment,
             SubpassCount = 1,
             PSubpasses = &subpass,
             DependencyCount = 1,
             PDependencies = &dependency
         };
+
+        renderPassInfo.AttachmentCount = (uint) attachments.Length;
+        fixed (AttachmentDescription* attachmentsPtr = attachments)
+            renderPassInfo.PAttachments = attachmentsPtr;
 
         if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
         {
@@ -997,6 +1032,15 @@ unsafe class VulkanRenderer : IDisposable
             PAttachments = &colorBlendAttachment
         };
 
+        PipelineDepthStencilStateCreateInfo depthStencil = new()
+        {
+            SType = StructureType.PipelineDepthStencilStateCreateInfo,
+            DepthTestEnable = true,
+            DepthWriteEnable = true,
+            DepthCompareOp = CompareOp.Less,
+            DepthBoundsTestEnable = false
+        };
+
         fixed (DescriptorSetLayout* descriptorSetLayoutPtr = &descriptorSetLayout)
         {
             PipelineLayoutCreateInfo pipelineLayoutInfo = new()
@@ -1037,7 +1081,8 @@ unsafe class VulkanRenderer : IDisposable
                 PMultisampleState = &multisampleInfo,
                 PColorBlendState = &colorBlendInfo,
                 PDynamicState = &dynamicStateInfo,
-                Layout = pipelineLayout,
+                PDepthStencilState = &depthStencil,
+                Layout = layout,
                 RenderPass = renderPass,
                 Subpass = 0
             };
@@ -1201,18 +1246,20 @@ unsafe class VulkanRenderer : IDisposable
 
         for (int i = 0; i < swapchainImageViews.Length; i++)
         {
-            var attachments = stackalloc[] { swapchainImageViews[i] };
+            var attachments = new ImageView[] { swapchainImageViews[i], depthImageView };
 
             FramebufferCreateInfo framebufferInfo = new()
             {
                 SType = StructureType.FramebufferCreateInfo,
                 RenderPass = renderPass,
-                AttachmentCount = 1,
-                PAttachments = attachments,
                 Width = swapchainExtent.Width,
                 Height = swapchainExtent.Height,
                 Layers = 1
             };
+
+            framebufferInfo.AttachmentCount = (uint) attachments.Length;
+            fixed (ImageView* attachmentsPtr = attachments)
+                framebufferInfo.PAttachments = attachmentsPtr;
 
             if (vk.CreateFramebuffer(device, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
             {
@@ -1236,6 +1283,44 @@ unsafe class VulkanRenderer : IDisposable
         {
             throw new Exception("Failed to create command pool!");
         }
+    }
+
+    void CreateDepthResources(out Image depthImage, out DeviceMemory depthImageMemory, out ImageView depthImageView)
+    {
+        var depthFormat = FindDepthFormat();
+        CreateImage(swapchainExtent.Width, swapchainExtent.Height, depthFormat,
+                    ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit,
+                    MemoryPropertyFlags.DeviceLocalBit, out depthImage, out depthImageMemory);
+        depthImageView = CreateImageView(depthImage, depthFormat, ImageAspectFlags.DepthBit);
+    }
+
+    bool HasStencilComponent(Format format)
+    {
+        return format == Format.D32SfloatS8Uint || format == Format.D24UnormS8Uint;
+    }
+
+    Format FindDepthFormat()
+    {
+        var candidates = new Format[] { Format.D32Sfloat, Format.D32SfloatS8Uint, Format.D24UnormS8Uint };
+        return FindSupportedFormat(candidates, ImageTiling.Optimal, FormatFeatureFlags.DepthStencilAttachmentBit);
+    }
+
+    Format FindSupportedFormat(Format[] candidates, ImageTiling tiling, FormatFeatureFlags features)
+    {
+        foreach (var format in candidates)
+        {
+            vk.GetPhysicalDeviceFormatProperties(physicalDevice, format, out FormatProperties props);
+            if (tiling == ImageTiling.Linear && (props.LinearTilingFeatures & features) == features)
+            {
+                return format;
+            }
+            else if (tiling == ImageTiling.Optimal && (props.OptimalTilingFeatures & features) == features)
+            {
+                return format;
+            }
+        }
+
+        throw new Exception("Failed to find supported format!");
     }
 
     void CreateTextureImage(string texturePath, out Image textureImage, out DeviceMemory textureImageMemory)
@@ -1274,7 +1359,7 @@ unsafe class VulkanRenderer : IDisposable
 
     void CreateTextureImageView(Image textureImage, out ImageView imageView)
     {
-        imageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb);
+        imageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
     }
 
     void CreateTextureSampler(out Sampler textureSampler)
@@ -1319,10 +1404,10 @@ unsafe class VulkanRenderer : IDisposable
             Extent = new() { Width = width, Height = height, Depth = 1 },
             MipLevels = 1,
             ArrayLayers = 1,
-            Format = Format.R8G8B8A8Srgb,
-            Tiling = ImageTiling.Optimal,
+            Format = format,
+            Tiling = tiling,
             InitialLayout = ImageLayout.Undefined,
-            Usage = ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+            Usage = usage,
             SharingMode = SharingMode.Exclusive,
             Samples = SampleCountFlags.Count1Bit
         };
@@ -1339,7 +1424,7 @@ unsafe class VulkanRenderer : IDisposable
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit)
+            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits, properties)
         };
 
         if (vk.AllocateMemory(device, in allocInfo, null, out imageMemory) != Result.Success)
@@ -1347,7 +1432,7 @@ unsafe class VulkanRenderer : IDisposable
             throw new Exception("Failed to allocate texture image memory!");
         }
 
-        vk.BindImageMemory(device, textureImage, textureImageMemory, 0);
+        vk.BindImageMemory(device, image, imageMemory, 0);
     }
 
     void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout)
@@ -1427,7 +1512,7 @@ unsafe class VulkanRenderer : IDisposable
         EndSingleTimeCommand(commandBuffer);
     }
 
-    ImageView CreateImageView(Image image, Format format)
+    ImageView CreateImageView(Image image, Format format, ImageAspectFlags aspectFlags)
     {
         ImageViewCreateInfo viewInfo = new()
         {
@@ -1437,7 +1522,7 @@ unsafe class VulkanRenderer : IDisposable
             ViewType = ImageViewType.Type2D,
             SubresourceRange = new()
             {
-                AspectMask = ImageAspectFlags.ColorBit,
+                AspectMask = aspectFlags,
                 BaseMipLevel = 0,
                 LevelCount = 1,
                 BaseArrayLayer = 0,

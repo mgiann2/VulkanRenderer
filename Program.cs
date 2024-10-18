@@ -23,15 +23,24 @@ class Program
 
         Vertex[] vertices = new Vertex[] 
         {
-            new Vertex() { pos = new Vector2D<float>(-0.5f, -0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
-            new Vertex() { pos = new Vector2D<float>(0.5f, -0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
-            new Vertex() { pos = new Vector2D<float>(0.5f, 0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
-            new Vertex() { pos = new Vector2D<float>(-0.5f, 0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
+            new Vertex() { pos = new Vector3D<float>(-0.5f, -0.5f, 0.0f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
+            new Vertex() { pos = new Vector3D<float>(0.5f, -0.5f, 0.0f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
+            new Vertex() { pos = new Vector3D<float>(0.5f, 0.5f, 0.0f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
+            new Vertex() { pos = new Vector3D<float>(-0.5f, 0.5f, 0.0f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
+
+            new Vertex() { pos = new Vector3D<float>(-0.5f, -0.5f, -0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
+            new Vertex() { pos = new Vector3D<float>(0.5f, -0.5f, -0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
+            new Vertex() { pos = new Vector3D<float>(0.5f, 0.5f, -0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
+            new Vertex() { pos = new Vector3D<float>(-0.5f, 0.5f, -0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
         };
 
         var vertexBuffer = renderer.CreateVertexBuffer(vertices);
 
-        ushort[] indices = new ushort[] { 0, 1, 2, 2, 3, 0 };
+        ushort[] indices = new ushort[] 
+        { 
+            0, 1, 2, 2, 3, 0,
+            4, 5, 6, 6, 7, 4
+        };
         var indexBuffer = renderer.CreateIndexBuffer(indices);
 
         window.Render += (double deltaTime) =>
