@@ -30,7 +30,7 @@ struct SwapChainSupportDetails
     public PresentModeKHR[] PresentModes;
 }
 
-struct Vertex
+public struct Vertex
 {
     public Vector3D<float> pos;
     public Vector3D<float> color;
@@ -79,7 +79,7 @@ struct Vertex
     }
 }
 
-readonly struct VertexBuffer
+public readonly struct VertexBuffer
 {
     public VertexBuffer(Buffer buffer, DeviceMemory bufferMemory, uint vertexCount)
     {
@@ -93,7 +93,7 @@ readonly struct VertexBuffer
     public uint VertexCount { get; init; }
 }
 
-readonly struct IndexBuffer
+public readonly struct IndexBuffer
 {
     public IndexBuffer(Buffer buffer, DeviceMemory bufferMemory, uint indexCount)
     {
@@ -107,14 +107,14 @@ readonly struct IndexBuffer
     public uint IndexCount { get; init; }
 }
 
-struct UniformBufferObject
+public struct UniformBufferObject
 {
     public Matrix4X4<float> model;
     public Matrix4X4<float> view;
     public Matrix4X4<float> proj;
 }
 
-unsafe class VulkanRenderer : IDisposable
+unsafe public class VulkanRenderer : IDisposable
 {
     enum RendererState
     {
@@ -159,23 +159,23 @@ unsafe class VulkanRenderer : IDisposable
     Framebuffer[] swapchainFramebuffers;
 
     RenderPass renderPass;
-    DescriptorSetLayout descriptorSetLayout;
     PipelineLayout pipelineLayout;
     Pipeline graphicsPipeline;
 
     Buffer[] uniformBuffers;
     DeviceMemory[] uniformBufferMemory;
 
-    DescriptorPool descriptorPool;
-    DescriptorSet[] descriptorSets;
+    DescriptorSetLayout uboDescriptorSetLayout;
+    DescriptorPool uboDescriptorPool;
+    DescriptorSet[] uboDescriptorSets;
+
+    DescriptorSetLayout samplerDescriptorSetLayout;
+    DescriptorPool samplerDescriptorPool;
 
     CommandPool commandPool;
     CommandBuffer[] commandBuffers;
 
-    Image textureImage;
-    ImageView textureImageView;
     Sampler textureSampler;
-    DeviceMemory textureImageMemory;
 
     Image depthImage;
     ImageView depthImageView;
@@ -209,19 +209,18 @@ unsafe class VulkanRenderer : IDisposable
         CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
         CreateImageViews(out swapchainImageViews);
         CreateRenderPass(out renderPass);
-        CreateDescriptorSetLayout(out descriptorSetLayout);
+        CreateDescriptorSetLayouts(out uboDescriptorSetLayout, out samplerDescriptorSetLayout);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
         CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
         CreateFramebuffers(out swapchainFramebuffers);
         CreateCommandPool(out commandPool);
-        CreateTextureImage("textures/texture.jpg", out textureImage, out textureImageMemory);
-        CreateTextureImageView(textureImage, out textureImageView);
+        // CreateTextureImage("textures/texture.jpg", out textureImage, out textureImageMemory);
+        // CreateTextureImageView(textureImage, out textureImageView);
         CreateTextureSampler(out textureSampler);
         CreateCommandBuffers(out commandBuffers);
-        CreateDescriptorSetLayout(out descriptorSetLayout);
         CreateUniformBuffers(out uniformBuffers, out uniformBufferMemory);
-        CreateDescriptorPool(out descriptorPool);
-        CreateDescriptorSets(out descriptorSets);
+        CreateDescriptorPools(out uboDescriptorPool, out samplerDescriptorPool);
+        CreateUBODescriptorSets(out uboDescriptorSets);
         CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
         window.FramebufferResize += OnFramebufferResize;
@@ -377,7 +376,7 @@ unsafe class VulkanRenderer : IDisposable
 
         // TODO: Determine if there is better location for binding descriptor sets
         vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
-                                 pipelineLayout, 0, 1, in descriptorSets[currentFrame], 0, default);
+                                 pipelineLayout, 0, 1, in uboDescriptorSets[currentFrame], 0, default);
 
         rendererState = RendererState.UsingRenderPass;
     }
@@ -489,6 +488,102 @@ unsafe class VulkanRenderer : IDisposable
     {
         vk.DestroyBuffer(device, indexBuffer.Buffer, null);
         vk.FreeMemory(device, indexBuffer.BufferMemory, null);
+    }
+
+    public (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream)
+    {
+        var image = Stbi.LoadFromMemory(memoryStream, 4);
+
+        ulong imageSize = (ulong)(image.Width * image.Height * 4);
+
+        Buffer stagingBuffer;
+        DeviceMemory stagingBufferMemory;
+        CreateBuffer(imageSize, BufferUsageFlags.TransferSrcBit,
+                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                     out stagingBuffer, out stagingBufferMemory);
+
+        void* data;
+        vk.MapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+        image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
+        vk.UnmapMemory(device, stagingBufferMemory);
+
+        CreateImage((uint)image.Width, (uint)image.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal,
+                     ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit,
+                     out var textureImage, out var textureImageMemory);
+
+        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+        CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);
+        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+
+        vk.DestroyBuffer(device, stagingBuffer, null);
+        vk.FreeMemory(device, stagingBufferMemory, null);
+
+        return (textureImage, textureImageMemory);
+    }
+
+    public ImageView CreateTextureImageView(Image textureImage)
+    {
+        return CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
+    }
+
+    public DescriptorSet[] CreateTextureImageDescriptorSets(ImageView imageView)
+    {
+        var imageDescriptorSets = new DescriptorSet[MaxFramesInFlight];
+
+        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+        Array.Fill(layouts, samplerDescriptorSetLayout);
+
+        fixed (DescriptorSetLayout* layoutsPtr = layouts)
+        {
+            DescriptorSetAllocateInfo allocInfo = new()
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = samplerDescriptorPool,
+                DescriptorSetCount = (uint) MaxFramesInFlight,
+                PSetLayouts = layoutsPtr
+            };
+
+            fixed (DescriptorSet* descriptorSetsPtr = imageDescriptorSets)
+            {
+                var res = vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr); 
+                if (res != Result.Success)
+                {
+                    Console.WriteLine(res);
+                    throw new Exception("Failed to allocate image descriptor sets!");
+                }
+            }
+        }
+
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            DescriptorImageInfo imageInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = imageView,
+                Sampler = textureSampler
+            };
+
+            WriteDescriptorSet descriptorWrite = new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = imageDescriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &imageInfo
+            };
+
+            vk.UpdateDescriptorSets(device, 1, in descriptorWrite, 0, default);
+        }
+
+        return imageDescriptorSets;
+    }
+
+    public void BindTextureDescriptorSet(DescriptorSet[] descriptorSets)
+    {
+        vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
+                                 pipelineLayout, 1, 1, in descriptorSets[currentFrame], 0, default);
     }
 
     public void UpdateUniformBuffer(UniformBufferObject ubo)
@@ -917,8 +1012,9 @@ unsafe class VulkanRenderer : IDisposable
         }
     }
 
-    void CreateDescriptorSetLayout(out DescriptorSetLayout descriptorSetLayout) 
+    void CreateDescriptorSetLayouts(out DescriptorSetLayout uboDescriptorSetLayout, out DescriptorSetLayout samplerDescriptorSetLayout) 
     {
+        // uniform buffer descriptor set layout
         DescriptorSetLayoutBinding uboLayoutBinding = new()
         {
             Binding = 0,
@@ -927,30 +1023,38 @@ unsafe class VulkanRenderer : IDisposable
             StageFlags = ShaderStageFlags.VertexBit
         };
 
+        DescriptorSetLayoutCreateInfo uboLayoutInfo = new()
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &uboLayoutBinding 
+        };
+    
+        if (vk.CreateDescriptorSetLayout(device, in uboLayoutInfo, null, out uboDescriptorSetLayout) != Result.Success)
+        {
+            throw new Exception("Failed to create uniform buffer object descriptor set layout!");
+        }
+
+        // image sampler descriptor set layout
         DescriptorSetLayoutBinding samplerLayoutBinding = new()
         {
-            Binding = 1,
+            Binding = 0,
             DescriptorType = DescriptorType.CombinedImageSampler,
             DescriptorCount = 1,
             PImmutableSamplers = default,
             StageFlags = ShaderStageFlags.FragmentBit
         };
 
-        DescriptorSetLayoutBinding[] bindings = new[] { uboLayoutBinding, samplerLayoutBinding };
-
-        fixed (DescriptorSetLayoutBinding* bindingsPtr = bindings)
+        DescriptorSetLayoutCreateInfo samplerLayoutInfo = new()
         {
-            DescriptorSetLayoutCreateInfo layoutInfo = new()
-            {
-                SType = StructureType.DescriptorSetLayoutCreateInfo,
-                BindingCount = (uint)bindings.Length,
-                PBindings = bindingsPtr
-            };
-        
-            if (vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out descriptorSetLayout) != Result.Success)
-            {
-                throw new Exception("Failed to create descriptor set layout!");
-            }
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &samplerLayoutBinding
+        };
+
+        if (vk.CreateDescriptorSetLayout(device, in samplerLayoutInfo, null, out samplerDescriptorSetLayout) != Result.Success)
+        {
+            throw new Exception("Failed to create sampler descriptor set layout!");
         }
     }
 
@@ -1041,13 +1145,15 @@ unsafe class VulkanRenderer : IDisposable
             DepthBoundsTestEnable = false
         };
 
-        fixed (DescriptorSetLayout* descriptorSetLayoutPtr = &descriptorSetLayout)
+        DescriptorSetLayout[] descriptorSetLayouts = new[] { uboDescriptorSetLayout, samplerDescriptorSetLayout };
+
+        fixed (DescriptorSetLayout* descriptorSetLayoutsPtr = descriptorSetLayouts)
         {
             PipelineLayoutCreateInfo pipelineLayoutInfo = new()
             {
                 SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = 1,
-                PSetLayouts = descriptorSetLayoutPtr
+                SetLayoutCount = (uint) descriptorSetLayouts.Length,
+                PSetLayouts = descriptorSetLayoutsPtr
             };
 
             if (vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out layout) != Result.Success)
@@ -1135,60 +1241,68 @@ unsafe class VulkanRenderer : IDisposable
         }
     }
 
-    void CreateDescriptorPool(out DescriptorPool descriptorPool)
+    void CreateDescriptorPools(out DescriptorPool uboDescriptorPool, out DescriptorPool samplerDescriptorPool)
     {
-        DescriptorPoolSize[] poolSizes = new DescriptorPoolSize[]
+        DescriptorPoolSize uboPoolSize = new()
         {
-            new()
-            {
-                Type = DescriptorType.UniformBuffer,
-                DescriptorCount = (uint) MaxFramesInFlight
-            },
-            new()
-            {
-                Type = DescriptorType.CombinedImageSampler,
-                DescriptorCount = (uint) MaxFramesInFlight
-            }
+            Type = DescriptorType.UniformBuffer,
+            DescriptorCount = (uint) MaxFramesInFlight
         };
 
-        fixed (DescriptorPoolSize* poolSizesPtr = poolSizes)
+        DescriptorPoolCreateInfo uboPoolInfo = new()
         {
-            DescriptorPoolCreateInfo poolInfo = new()
-            {
-                SType = StructureType.DescriptorPoolCreateInfo,
-                PoolSizeCount = (uint) poolSizes.Length,
-                PPoolSizes = poolSizesPtr,
-                MaxSets = (uint) MaxFramesInFlight
-            };
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &uboPoolSize,
+            MaxSets = (uint) MaxFramesInFlight
+        };
 
-            if (vk.CreateDescriptorPool(device, in poolInfo, null, out descriptorPool) != Result.Success)
-            {
-                throw new Exception("Failed to create descriptor pool!");
-            }
+        if (vk.CreateDescriptorPool(device, in uboPoolInfo, null, out uboDescriptorPool) != Result.Success)
+        {
+            throw new Exception("Failed to creat uniform buffer object descriptor pool!");
+        }
+
+        DescriptorPoolSize samplerPoolSize =  new()
+        {
+            Type = DescriptorType.CombinedImageSampler,
+            DescriptorCount = (uint) MaxFramesInFlight * 2,
+        };
+
+        DescriptorPoolCreateInfo samplerPoolInfo = new()
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &samplerPoolSize,
+            MaxSets = (uint) MaxFramesInFlight * 2
+        };
+
+        if (vk.CreateDescriptorPool(device, in samplerPoolInfo, null, out samplerDescriptorPool) != Result.Success)
+        {
+            throw new Exception("Failed to create sampler descriptor pool!");
         }
     }
 
-    void CreateDescriptorSets(out DescriptorSet[] descriptorSets)
+    void CreateUBODescriptorSets(out DescriptorSet[] uboDescriptorSets)
     {
         var layouts = new DescriptorSetLayout[MaxFramesInFlight];
-        Array.Fill(layouts, descriptorSetLayout);
+        Array.Fill(layouts, uboDescriptorSetLayout);
 
         fixed (DescriptorSetLayout* layoutsPtr = layouts)
         {
             DescriptorSetAllocateInfo allocInfo = new()
             {
                 SType = StructureType.DescriptorSetAllocateInfo,
-                DescriptorPool = descriptorPool,
+                DescriptorPool = uboDescriptorPool,
                 DescriptorSetCount = (uint) MaxFramesInFlight,
-                PSetLayouts = layoutsPtr 
+                PSetLayouts = layoutsPtr
             };
-            
-            descriptorSets = new DescriptorSet[MaxFramesInFlight];
-            fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+
+            uboDescriptorSets = new DescriptorSet[MaxFramesInFlight];
+            fixed (DescriptorSet* descriptorSetsPtr = uboDescriptorSets)
             {
                 if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
                 {
-                    throw new Exception("Failed to allocate descriptor sets!");
+                    throw new Exception("Failed to allocate uniform buffer object descriptor sets!");
                 }
             }
         }
@@ -1202,43 +1316,92 @@ unsafe class VulkanRenderer : IDisposable
                 Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
             };
 
-            DescriptorImageInfo imageInfo = new()
+            WriteDescriptorSet descriptorWrite = new()
             {
-                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = textureImageView,
-                Sampler = textureSampler
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = uboDescriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &bufferInfo
             };
 
-            WriteDescriptorSet[] descriptorWrites = new WriteDescriptorSet[]
-            {
-                new()
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = descriptorSets[i],
-                    DstBinding = 0,
-                    DstArrayElement = 0,
-                    DescriptorType = DescriptorType.UniformBuffer,
-                    DescriptorCount = 1,
-                    PBufferInfo = &bufferInfo
-                },
-                new()
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = descriptorSets[i],
-                    DstBinding = 1,
-                    DstArrayElement = 0,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    DescriptorCount = 1,
-                    PImageInfo = &imageInfo
-                }
-            };
-
-            fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
-            {
-                vk.UpdateDescriptorSets(device, (uint)descriptorWrites.Length, descriptorWritesPtr, 0, default);
-            }
+            vk.UpdateDescriptorSets(device, 1, &descriptorWrite, 0, default);
         }
     }
+
+    // void CreateDescriptorSets(out DescriptorSet[] descriptorSets)
+    // {
+    //     var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+    //     Array.Fill(layouts, uboDescriptorSetLayout);
+    //
+    //     fixed (DescriptorSetLayout* layoutsPtr = layouts)
+    //     {
+    //         DescriptorSetAllocateInfo allocInfo = new()
+    //         {
+    //             SType = StructureType.DescriptorSetAllocateInfo,
+    //             DescriptorPool = uboDescriptorPool,
+    //             DescriptorSetCount = (uint) MaxFramesInFlight,
+    //             PSetLayouts = layoutsPtr 
+    //         };
+    //         
+    //         descriptorSets = new DescriptorSet[MaxFramesInFlight];
+    //         fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+    //         {
+    //             if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
+    //             {
+    //                 throw new Exception("Failed to allocate descriptor sets!");
+    //             }
+    //         }
+    //     }
+    //
+    //     for (int i = 0; i < MaxFramesInFlight; i++)
+    //     {
+    //         DescriptorBufferInfo bufferInfo = new()
+    //         {
+    //             Buffer = uniformBuffers[i],
+    //             Offset = 0,
+    //             Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
+    //         };
+    //
+    //         DescriptorImageInfo imageInfo = new()
+    //         {
+    //             ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+    //             ImageView = textureImageView,
+    //             Sampler = textureSampler
+    //         };
+    //
+    //         WriteDescriptorSet[] descriptorWrites = new WriteDescriptorSet[]
+    //         {
+    //             new()
+    //             {
+    //                 SType = StructureType.WriteDescriptorSet,
+    //                 DstSet = descriptorSets[i],
+    //                 DstBinding = 0,
+    //                 DstArrayElement = 0,
+    //                 DescriptorType = DescriptorType.UniformBuffer,
+    //                 DescriptorCount = 1,
+    //                 PBufferInfo = &bufferInfo
+    //             },
+    //             new()
+    //             {
+    //                 SType = StructureType.WriteDescriptorSet,
+    //                 DstSet = descriptorSets[i],
+    //                 DstBinding = 1,
+    //                 DstArrayElement = 0,
+    //                 DescriptorType = DescriptorType.CombinedImageSampler,
+    //                 DescriptorCount = 1,
+    //                 PImageInfo = &imageInfo
+    //             }
+    //         };
+    //
+    //         fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
+    //         {
+    //             vk.UpdateDescriptorSets(device, (uint)descriptorWrites.Length, descriptorWritesPtr, 0, default);
+    //         }
+    //     }
+    // }
 
     void CreateFramebuffers(out Framebuffer[] framebuffers)
     {
@@ -1841,9 +2004,6 @@ unsafe class VulkanRenderer : IDisposable
             }
 
             vk.DestroySampler(device, textureSampler, null);
-            vk.DestroyImageView(device, textureImageView, null);
-            vk.DestroyImage(device, textureImage, null);
-            vk.FreeMemory(device, textureImageMemory, null);
 
             vk.DestroyCommandPool(device, commandPool, null);
 
@@ -1856,8 +2016,8 @@ unsafe class VulkanRenderer : IDisposable
                 vk.DestroyBuffer(device, uniformBuffers[i], null);
                 vk.FreeMemory(device, uniformBufferMemory[i], null);
             }
-            vk.DestroyDescriptorPool(device, descriptorPool, null);
-            vk.DestroyDescriptorSetLayout(device, descriptorSetLayout, null);
+            vk.DestroyDescriptorPool(device, uboDescriptorPool, null);
+            vk.DestroyDescriptorSetLayout(device, uboDescriptorSetLayout, null);
 
             vk.DestroyRenderPass(device, renderPass, null);
 

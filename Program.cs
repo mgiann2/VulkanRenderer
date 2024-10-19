@@ -21,27 +21,34 @@ class Program
 
         var renderer = new VulkanRenderer(window, true);
 
-        Vertex[] vertices = new Vertex[] 
+        Vertex[] vertices1 = new Vertex[] 
         {
             new Vertex() { pos = new Vector3D<float>(-0.5f, -0.5f, 0.0f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
             new Vertex() { pos = new Vector3D<float>(0.5f, -0.5f, 0.0f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
             new Vertex() { pos = new Vector3D<float>(0.5f, 0.5f, 0.0f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
             new Vertex() { pos = new Vector3D<float>(-0.5f, 0.5f, 0.0f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
 
+        };
+
+        Vertex[] vertices2 = new Vertex[]
+        {
             new Vertex() { pos = new Vector3D<float>(-0.5f, -0.5f, -0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
             new Vertex() { pos = new Vector3D<float>(0.5f, -0.5f, -0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
             new Vertex() { pos = new Vector3D<float>(0.5f, 0.5f, -0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
             new Vertex() { pos = new Vector3D<float>(-0.5f, 0.5f, -0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
         };
-
-        var vertexBuffer = renderer.CreateVertexBuffer(vertices);
+        
+        var vb1 = renderer.CreateVertexBuffer(vertices1);
+        var vb2 = renderer.CreateVertexBuffer(vertices2);
 
         ushort[] indices = new ushort[] 
         { 
             0, 1, 2, 2, 3, 0,
-            4, 5, 6, 6, 7, 4
         };
         var indexBuffer = renderer.CreateIndexBuffer(indices);
+
+        var tex1 = new Texture(renderer, "textures/texture.jpg");
+        var tex2 = new Texture(renderer, "textures/texture2.jpg");
 
         window.Render += (double deltaTime) =>
         {
@@ -61,8 +68,14 @@ class Program
             renderer.BeginRenderPass();
 
             renderer.UpdateUniformBuffer(ubo);
-            renderer.Bind(vertexBuffer);
             renderer.Bind(indexBuffer);
+
+            renderer.Bind(vb1);
+            tex1.Use();
+            renderer.DrawIndexed(indexBuffer.IndexCount);
+
+            renderer.Bind(vb2);
+            tex2.Use();
             renderer.DrawIndexed(indexBuffer.IndexCount);
 
             renderer.EndRenderPass();
@@ -76,7 +89,8 @@ class Program
 
         window.Run();
 
-        renderer.DestroyBuffer(vertexBuffer);
+        renderer.DestroyBuffer(vb1);
+        renderer.DestroyBuffer(vb2);
         renderer.DestroyBuffer(indexBuffer);
     }
 
