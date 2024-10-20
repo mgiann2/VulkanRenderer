@@ -47,8 +47,8 @@ class Program
         };
         var indexBuffer = renderer.CreateIndexBuffer(indices);
 
-        var tex1 = new Texture(renderer, "textures/texture.jpg");
-        var tex2 = new Texture(renderer, "textures/texture2.jpg");
+        var tex1 = renderer.CreateTexture("textures/texture.jpg");
+        var tex2 = renderer.CreateTexture("textures/texture2.jpg");
 
         window.Render += (double deltaTime) =>
         {
@@ -71,11 +71,11 @@ class Program
             renderer.Bind(indexBuffer);
 
             renderer.Bind(vb1);
-            tex1.Use();
+            renderer.BindTexture(tex1); 
             renderer.DrawIndexed(indexBuffer.IndexCount);
 
             renderer.Bind(vb2);
-            tex2.Use();
+            renderer.BindTexture(tex2);
             renderer.DrawIndexed(indexBuffer.IndexCount);
 
             renderer.EndRenderPass();
@@ -92,6 +92,8 @@ class Program
         renderer.DestroyBuffer(vb1);
         renderer.DestroyBuffer(vb2);
         renderer.DestroyBuffer(indexBuffer);
+        renderer.DestroyTexture(tex1);
+        renderer.DestroyTexture(tex2);
     }
 
     static float Radians(float angle) => angle * MathF.PI / 180f;

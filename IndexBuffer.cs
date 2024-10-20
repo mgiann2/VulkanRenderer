@@ -4,16 +4,16 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 
 public readonly struct IndexBuffer
 {
+    public Buffer Buffer { get; init; }
+    public DeviceMemory BufferMemory { get; init; }
+    public uint IndexCount { get; init; }
+
     public IndexBuffer(Buffer buffer, DeviceMemory bufferMemory, uint indexCount)
     {
         Buffer = buffer;
         BufferMemory = bufferMemory;
         IndexCount = indexCount;
     }
-
-    public Buffer Buffer { get; init; }
-    public DeviceMemory BufferMemory { get; init; }
-    public uint IndexCount { get; init; }
 }
 
 unsafe public partial class VulkanRenderer

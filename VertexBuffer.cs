@@ -55,16 +55,16 @@ public struct Vertex
 
 public readonly struct VertexBuffer
 {
+    public Buffer Buffer { get; init; }
+    public DeviceMemory BufferMemory { get; init; }
+    public uint VertexCount { get; init; }
+
     public VertexBuffer(Buffer buffer, DeviceMemory bufferMemory, uint vertexCount)
     {
         Buffer = buffer;
         BufferMemory = bufferMemory;
         VertexCount = vertexCount;
     }
-
-    public Buffer Buffer { get; init; }
-    public DeviceMemory BufferMemory { get; init; }
-    public uint VertexCount { get; init; }
 }
 
 unsafe public partial class VulkanRenderer

@@ -137,8 +137,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
         CreateFramebuffers(out swapchainFramebuffers);
         CreateCommandPool(out commandPool);
-        // CreateTextureImage("textures/texture.jpg", out textureImage, out textureImageMemory);
-        // CreateTextureImageView(textureImage, out textureImageView);
         CreateTextureSampler(out textureSampler);
         CreateCommandBuffers(out commandBuffers);
         CreateUniformBuffers(out uniformBuffers, out uniformBufferMemory);
@@ -326,102 +324,6 @@ unsafe public partial class VulkanRenderer : IDisposable
     public void DrawIndexed(uint indexCount)
     {
         vk.CmdDrawIndexed(commandBuffers[currentFrame], indexCount, 1, 0, 0, 0);
-    }
-
-    public (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream)
-    {
-        var image = Stbi.LoadFromMemory(memoryStream, 4);
-
-        ulong imageSize = (ulong)(image.Width * image.Height * 4);
-
-        Buffer stagingBuffer;
-        DeviceMemory stagingBufferMemory;
-        CreateBuffer(imageSize, BufferUsageFlags.TransferSrcBit,
-                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                     out stagingBuffer, out stagingBufferMemory);
-
-        void* data;
-        vk.MapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
-        image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
-        vk.UnmapMemory(device, stagingBufferMemory);
-
-        CreateImage((uint)image.Width, (uint)image.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal,
-                     ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit,
-                     out var textureImage, out var textureImageMemory);
-
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
-        CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
-
-        vk.DestroyBuffer(device, stagingBuffer, null);
-        vk.FreeMemory(device, stagingBufferMemory, null);
-
-        return (textureImage, textureImageMemory);
-    }
-
-    public ImageView CreateTextureImageView(Image textureImage)
-    {
-        return CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
-    }
-
-    public DescriptorSet[] CreateTextureImageDescriptorSets(ImageView imageView)
-    {
-        var imageDescriptorSets = new DescriptorSet[MaxFramesInFlight];
-
-        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
-        Array.Fill(layouts, samplerDescriptorSetLayout);
-
-        fixed (DescriptorSetLayout* layoutsPtr = layouts)
-        {
-            DescriptorSetAllocateInfo allocInfo = new()
-            {
-                SType = StructureType.DescriptorSetAllocateInfo,
-                DescriptorPool = samplerDescriptorPool,
-                DescriptorSetCount = (uint) MaxFramesInFlight,
-                PSetLayouts = layoutsPtr
-            };
-
-            fixed (DescriptorSet* descriptorSetsPtr = imageDescriptorSets)
-            {
-                var res = vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr); 
-                if (res != Result.Success)
-                {
-                    Console.WriteLine(res);
-                    throw new Exception("Failed to allocate image descriptor sets!");
-                }
-            }
-        }
-
-        for (int i = 0; i < MaxFramesInFlight; i++)
-        {
-            DescriptorImageInfo imageInfo = new()
-            {
-                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = imageView,
-                Sampler = textureSampler
-            };
-
-            WriteDescriptorSet descriptorWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = imageDescriptorSets[i],
-                DstBinding = 0,
-                DstArrayElement = 0,
-                DescriptorType = DescriptorType.CombinedImageSampler,
-                DescriptorCount = 1,
-                PImageInfo = &imageInfo
-            };
-
-            vk.UpdateDescriptorSets(device, 1, in descriptorWrite, 0, default);
-        }
-
-        return imageDescriptorSets;
-    }
-
-    public void BindTextureDescriptorSet(DescriptorSet[] descriptorSets)
-    {
-        vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
-                                 pipelineLayout, 1, 1, in descriptorSets[currentFrame], 0, default);
     }
 
     public void UpdateUniformBuffer(UniformBufferObject ubo)
@@ -1111,7 +1013,8 @@ unsafe public partial class VulkanRenderer : IDisposable
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &samplerPoolSize,
-            MaxSets = (uint) MaxFramesInFlight * 2
+            MaxSets = (uint) MaxFramesInFlight * 2,
+            Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
         if (vk.CreateDescriptorPool(device, in samplerPoolInfo, null, out samplerDescriptorPool) != Result.Success)
@@ -1168,78 +1071,6 @@ unsafe public partial class VulkanRenderer : IDisposable
             vk.UpdateDescriptorSets(device, 1, &descriptorWrite, 0, default);
         }
     }
-
-    // void CreateDescriptorSets(out DescriptorSet[] descriptorSets)
-    // {
-    //     var layouts = new DescriptorSetLayout[MaxFramesInFlight];
-    //     Array.Fill(layouts, uboDescriptorSetLayout);
-    //
-    //     fixed (DescriptorSetLayout* layoutsPtr = layouts)
-    //     {
-    //         DescriptorSetAllocateInfo allocInfo = new()
-    //         {
-    //             SType = StructureType.DescriptorSetAllocateInfo,
-    //             DescriptorPool = uboDescriptorPool,
-    //             DescriptorSetCount = (uint) MaxFramesInFlight,
-    //             PSetLayouts = layoutsPtr 
-    //         };
-    //         
-    //         descriptorSets = new DescriptorSet[MaxFramesInFlight];
-    //         fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
-    //         {
-    //             if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
-    //             {
-    //                 throw new Exception("Failed to allocate descriptor sets!");
-    //             }
-    //         }
-    //     }
-    //
-    //     for (int i = 0; i < MaxFramesInFlight; i++)
-    //     {
-    //         DescriptorBufferInfo bufferInfo = new()
-    //         {
-    //             Buffer = uniformBuffers[i],
-    //             Offset = 0,
-    //             Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
-    //         };
-    //
-    //         DescriptorImageInfo imageInfo = new()
-    //         {
-    //             ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-    //             ImageView = textureImageView,
-    //             Sampler = textureSampler
-    //         };
-    //
-    //         WriteDescriptorSet[] descriptorWrites = new WriteDescriptorSet[]
-    //         {
-    //             new()
-    //             {
-    //                 SType = StructureType.WriteDescriptorSet,
-    //                 DstSet = descriptorSets[i],
-    //                 DstBinding = 0,
-    //                 DstArrayElement = 0,
-    //                 DescriptorType = DescriptorType.UniformBuffer,
-    //                 DescriptorCount = 1,
-    //                 PBufferInfo = &bufferInfo
-    //             },
-    //             new()
-    //             {
-    //                 SType = StructureType.WriteDescriptorSet,
-    //                 DstSet = descriptorSets[i],
-    //                 DstBinding = 1,
-    //                 DstArrayElement = 0,
-    //                 DescriptorType = DescriptorType.CombinedImageSampler,
-    //                 DescriptorCount = 1,
-    //                 PImageInfo = &imageInfo
-    //             }
-    //         };
-    //
-    //         fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
-    //         {
-    //             vk.UpdateDescriptorSets(device, (uint)descriptorWrites.Length, descriptorWritesPtr, 0, default);
-    //         }
-    //     }
-    // }
 
     void CreateFramebuffers(out Framebuffer[] framebuffers)
     {
@@ -1810,9 +1641,11 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         return Vk.False;
     }
+}
 
-    // IDisposable methods
-    
+// IDisposable methods
+unsafe public partial class VulkanRenderer : IDisposable
+{
     ~VulkanRenderer()
     {
         Dispose(disposing: false);
