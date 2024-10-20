@@ -30,83 +30,6 @@ struct SwapChainSupportDetails
     public PresentModeKHR[] PresentModes;
 }
 
-public struct Vertex
-{
-    public Vector3D<float> pos;
-    public Vector3D<float> color;
-    public Vector2D<float> texCoord;
-
-    public static VertexInputBindingDescription GetBindingDescription()
-    {
-        VertexInputBindingDescription bindingDescription = new()
-        {
-            Binding = 0,
-            Stride = (uint)Unsafe.SizeOf<Vertex>(),
-            InputRate = VertexInputRate.Vertex
-        };
-
-        return bindingDescription;
-    }
-
-    public static VertexInputAttributeDescription[] GetAttributeDescriptions()
-    {
-        var attributeDescriptions = new[]
-        {
-            new VertexInputAttributeDescription()
-            {
-                Binding = 0,
-                Location = 0,
-                Format = Format.R32G32B32Sfloat,
-                Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(pos))
-            },
-            new VertexInputAttributeDescription()
-            {
-                Binding = 0,
-                Location = 1,
-                Format = Format.R32G32B32Sfloat,
-                Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(color))
-            },
-            new VertexInputAttributeDescription()
-            {
-                Binding = 0,
-                Location = 2,
-                Format = Format.R32G32Sfloat,
-                Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(texCoord))
-            }
-        };
-
-        return attributeDescriptions;
-    }
-}
-
-public readonly struct VertexBuffer
-{
-    public VertexBuffer(Buffer buffer, DeviceMemory bufferMemory, uint vertexCount)
-    {
-        Buffer = buffer;
-        BufferMemory = bufferMemory;
-        VertexCount = vertexCount;
-    }
-
-    public Buffer Buffer { get; init; }
-    public DeviceMemory BufferMemory { get; init; }
-    public uint VertexCount { get; init; }
-}
-
-public readonly struct IndexBuffer
-{
-    public IndexBuffer(Buffer buffer, DeviceMemory bufferMemory, uint indexCount)
-    {
-        Buffer = buffer;
-        BufferMemory = bufferMemory;
-        IndexCount = indexCount;
-    }
-
-    public Buffer Buffer { get; init; }
-    public DeviceMemory BufferMemory { get; init; }
-    public uint IndexCount { get; init; }
-}
-
 public struct UniformBufferObject
 {
     public Matrix4X4<float> model;
@@ -114,7 +37,7 @@ public struct UniformBufferObject
     public Matrix4X4<float> proj;
 }
 
-unsafe public class VulkanRenderer : IDisposable
+unsafe public partial class VulkanRenderer : IDisposable
 {
     enum RendererState
     {
@@ -395,23 +318,6 @@ unsafe public class VulkanRenderer : IDisposable
         vk.DeviceWaitIdle(device);
     }
 
-    public void Bind(VertexBuffer vertexBuffer)
-    {
-        Buffer[] vertexBuffers = new[]{ vertexBuffer.Buffer };
-        ulong[] offsets = new ulong[]{ 0 };
-
-        fixed (Buffer* vertexBufferPtr = vertexBuffers)
-        fixed(ulong* offsetsPtr = offsets)
-        {
-            vk.CmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, vertexBufferPtr, offsetsPtr);
-        }
-    }
-
-    public void Bind(IndexBuffer indexBuffer)
-    {
-        vk.CmdBindIndexBuffer(commandBuffers[currentFrame], indexBuffer.Buffer, 0, IndexType.Uint16);
-    }
-
     public void Draw(uint vertexCount)
     {
         vk.CmdDraw(commandBuffers[currentFrame], vertexCount, 1, 0, 0);
@@ -420,74 +326,6 @@ unsafe public class VulkanRenderer : IDisposable
     public void DrawIndexed(uint indexCount)
     {
         vk.CmdDrawIndexed(commandBuffers[currentFrame], indexCount, 1, 0, 0, 0);
-    }
-
-    public VertexBuffer CreateVertexBuffer(Vertex[] vertices)
-    {
-        ulong bufferSize = (ulong) (Unsafe.SizeOf<Vertex>() * vertices.Length);
-        
-        Buffer stagingBuffer;
-        DeviceMemory stagingBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit, 
-                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                     out stagingBuffer, out stagingBufferMemory);
-
-        void* data;
-        vk.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        vertices.AsSpan().CopyTo(new Span<Vertex>(data, vertices.Length));
-        vk.UnmapMemory(device, stagingBufferMemory);
-
-        Buffer vertexBuffer;
-        DeviceMemory vertexBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
-                     MemoryPropertyFlags.DeviceLocalBit, out vertexBuffer, out vertexBufferMemory);
-
-        CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-
-        vk.DestroyBuffer(device, stagingBuffer, null);
-        vk.FreeMemory(device, stagingBufferMemory, null);
-
-        return new VertexBuffer(vertexBuffer, vertexBufferMemory, (uint) vertices.Length);
-    }
-
-    public IndexBuffer CreateIndexBuffer(ushort[] indices)
-    {
-        ulong bufferSize = (ulong) (Unsafe.SizeOf<ushort>() * indices.Length);
-        
-        Buffer stagingBuffer;
-        DeviceMemory stagingBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit, 
-                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                     out stagingBuffer, out stagingBufferMemory);
-
-        void* data;
-        vk.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-        indices.AsSpan().CopyTo(new Span<ushort>(data, indices.Length));
-        vk.UnmapMemory(device, stagingBufferMemory);
-
-        Buffer indexBuffer;
-        DeviceMemory indexBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit,
-                     MemoryPropertyFlags.DeviceLocalBit, out indexBuffer, out indexBufferMemory);
-
-        CopyBuffer(stagingBuffer, indexBuffer, bufferSize);
-
-        vk.DestroyBuffer(device, stagingBuffer, null);
-        vk.FreeMemory(device, stagingBufferMemory, null);
-
-        return new IndexBuffer(indexBuffer, indexBufferMemory, (uint) indices.Length);
-    }
-
-    public void DestroyBuffer(VertexBuffer vertexBuffer)
-    {
-        vk.DestroyBuffer(device, vertexBuffer.Buffer, null);
-        vk.FreeMemory(device, vertexBuffer.BufferMemory, null);
-    }
-
-    public void DestroyBuffer(IndexBuffer indexBuffer)
-    {
-        vk.DestroyBuffer(device, indexBuffer.Buffer, null);
-        vk.FreeMemory(device, indexBuffer.BufferMemory, null);
     }
 
     public (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream)
