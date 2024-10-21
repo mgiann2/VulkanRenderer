@@ -21,34 +21,7 @@ class Program
 
         var renderer = new VulkanRenderer(window, true);
 
-        Vertex[] vertices1 = new Vertex[] 
-        {
-            new Vertex() { pos = new Vector3D<float>(-0.5f, -0.5f, 0.0f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
-            new Vertex() { pos = new Vector3D<float>(0.5f, -0.5f, 0.0f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
-            new Vertex() { pos = new Vector3D<float>(0.5f, 0.5f, 0.0f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
-            new Vertex() { pos = new Vector3D<float>(-0.5f, 0.5f, 0.0f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
-
-        };
-
-        Vertex[] vertices2 = new Vertex[]
-        {
-            new Vertex() { pos = new Vector3D<float>(-0.5f, -0.5f, -0.5f), color = new Vector3D<float>(1.0f, 0.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) },
-            new Vertex() { pos = new Vector3D<float>(0.5f, -0.5f, -0.5f), color = new Vector3D<float>(0.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) },
-            new Vertex() { pos = new Vector3D<float>(0.5f, 0.5f, -0.5f), color = new Vector3D<float>(0.0f, 0.0f, 1.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) },
-            new Vertex() { pos = new Vector3D<float>(-0.5f, 0.5f, -0.5f), color = new Vector3D<float>(1.0f, 1.0f, 1.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) },
-        };
-        
-        var vb1 = renderer.CreateVertexBuffer(vertices1);
-        var vb2 = renderer.CreateVertexBuffer(vertices2);
-
-        ushort[] indices = new ushort[] 
-        { 
-            0, 1, 2, 2, 3, 0,
-        };
-        var indexBuffer = renderer.CreateIndexBuffer(indices);
-
-        var tex1 = renderer.CreateTexture("textures/texture.jpg");
-        var tex2 = renderer.CreateTexture("textures/texture2.jpg");
+        var model = renderer.LoadModel("models/viking_room.obj", "textures/viking_room.png");
 
         window.Render += (double deltaTime) =>
         {
@@ -68,15 +41,11 @@ class Program
             renderer.BeginRenderPass();
 
             renderer.UpdateUniformBuffer(ubo);
-            renderer.Bind(indexBuffer);
 
-            renderer.Bind(vb1);
-            renderer.BindTexture(tex1); 
-            renderer.DrawIndexed(indexBuffer.IndexCount);
-
-            renderer.Bind(vb2);
-            renderer.BindTexture(tex2);
-            renderer.DrawIndexed(indexBuffer.IndexCount);
+            renderer.Bind(model.IndexBuffer);
+            renderer.Bind(model.VertexBuffer);
+            renderer.BindTexture(model.Texture);
+            renderer.DrawIndexed(model.IndexBuffer.IndexCount);
 
             renderer.EndRenderPass();
             renderer.EndFrame();
@@ -85,15 +54,10 @@ class Program
         window.Closing += () =>
         {
             renderer.DeviceWaitIdle();
+            renderer.UnloadModel(model);
         };
 
         window.Run();
-
-        renderer.DestroyBuffer(vb1);
-        renderer.DestroyBuffer(vb2);
-        renderer.DestroyBuffer(indexBuffer);
-        renderer.DestroyTexture(tex1);
-        renderer.DestroyTexture(tex2);
     }
 
     static float Radians(float angle) => angle * MathF.PI / 180f;
