@@ -8,7 +8,6 @@ using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
-using StbiSharp;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
@@ -99,6 +98,8 @@ unsafe public partial class VulkanRenderer : IDisposable
     CommandBuffer[] commandBuffers;
 
     Sampler textureSampler;
+
+    GBuffer gBuffer;
 
     Image depthImage;
     ImageView depthImageView;
@@ -1153,45 +1154,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
 
         throw new Exception("Failed to find supported format!");
-    }
-
-    void CreateTextureImage(string texturePath, out Image textureImage, out DeviceMemory textureImageMemory)
-    {
-        using (var stream = File.OpenRead(texturePath))
-        using (var memoryStream = new MemoryStream())
-        {
-            stream.CopyTo(memoryStream);
-            var image = Stbi.LoadFromMemory(memoryStream, 4);
-
-            ulong imageSize = (ulong)(image.Width * image.Height * 4);
-
-            Buffer stagingBuffer;
-            DeviceMemory stagingBufferMemory;
-            CreateBuffer(imageSize, BufferUsageFlags.TransferSrcBit,
-                         MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                         out stagingBuffer, out stagingBufferMemory);
-
-            void* data;
-            vk.MapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
-            image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
-            vk.UnmapMemory(device, stagingBufferMemory);
-
-            CreateImage((uint)image.Width, (uint)image.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal,
-                         ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit,
-                         out textureImage, out textureImageMemory);
-
-            TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
-            CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);
-            TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
-
-            vk.DestroyBuffer(device, stagingBuffer, null);
-            vk.FreeMemory(device, stagingBufferMemory, null);
-        }
-    }
-
-    void CreateTextureImageView(Image textureImage, out ImageView imageView)
-    {
-        imageView = CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
     }
 
     void CreateTextureSampler(out Sampler textureSampler)
