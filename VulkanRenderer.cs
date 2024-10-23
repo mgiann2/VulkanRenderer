@@ -22,11 +22,21 @@ struct QueueFamilyIndices
     }
 }
 
-struct SwapChainSupportDetails
+struct SwapchainSupportDetails
 {
     public SurfaceCapabilitiesKHR Capabilities;
     public SurfaceFormatKHR[] Formats;
     public PresentModeKHR[] PresentModes;
+}
+
+struct SwapchainInfo
+{
+    public KhrSwapchain KhrSwapchain { get; init; }
+    public SwapchainKHR Swapchain { get; init; }
+    public Image[] Images { get; init; }
+    public ImageView[] ImageViews { get; init; }
+    public Extent2D Extent { get; init; }
+    public Format ImageFormat { get; init; }
 }
 
 public struct UniformBufferObject
@@ -72,15 +82,19 @@ unsafe public partial class VulkanRenderer : IDisposable
     Queue graphicsQueue;
     Queue presentQueue;
 
-    KhrSwapchain khrSwapchain;
-    SwapchainKHR swapchain;
-    Image[] swapchainImages;
-    ImageView[] swapchainImageViews;
-    Extent2D swapchainExtent;
-    Format swapchainImageFormat;
+    SwapchainInfo swapchainInfo;
     Framebuffer[] swapchainFramebuffers;
 
     RenderPass renderPass;
+
+    FramebufferAttachment depthAttachment;
+    RenderPass compositionRenderPass;
+    Framebuffer compositionFramebuffer;
+
+    GBuffer gBuffer;
+    RenderPass geometryPass;
+    Framebuffer geometryFramebuffer;
+
     PipelineLayout pipelineLayout;
     Pipeline graphicsPipeline;
 
@@ -98,8 +112,6 @@ unsafe public partial class VulkanRenderer : IDisposable
     CommandBuffer[] commandBuffers;
 
     Sampler textureSampler;
-
-    GBuffer gBuffer;
 
     Image depthImage;
     ImageView depthImageView;
@@ -130,8 +142,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         CreateSurface(out khrSurface, out surface);
         PickPhysicalDevice(out physicalDevice);
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
-        CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
-        CreateImageViews(out swapchainImageViews);
+        CreateSwapchain(out swapchainInfo);
         CreateRenderPass(out renderPass);
         CreateDescriptorSetLayouts(out uboDescriptorSetLayout, out samplerDescriptorSetLayout);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
@@ -158,7 +169,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.WaitForFences(device, 1, ref inFlightFences[currentFrame], true, ulong.MaxValue);
 
         imageIndex = 0;
-        var result = khrSwapchain.AcquireNextImage(device, swapchain, ulong.MaxValue, imageAvailableSemaphores[currentFrame], default, ref imageIndex);
+        var result = swapchainInfo.KhrSwapchain.AcquireNextImage(device, swapchainInfo.Swapchain, ulong.MaxValue, imageAvailableSemaphores[currentFrame], default, ref imageIndex);
         if (result == Result.ErrorOutOfDateKhr)
         {
             RecreateSwapchain();
@@ -220,7 +231,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             throw new Exception("Failed to submit draw command buffer!");
         }
 
-        var swapchains = stackalloc[] { swapchain };
+        var swapchains = stackalloc[] { swapchainInfo.Swapchain };
 
         uint idx = imageIndex;
         PresentInfoKHR presentInfo = new()
@@ -233,7 +244,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             PImageIndices = &idx
         };
 
-        var result = khrSwapchain.QueuePresent(presentQueue, in presentInfo);
+        var result = swapchainInfo.KhrSwapchain.QueuePresent(presentQueue, in presentInfo);
         if (result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || framebufferResized)
         {
             framebufferResized = false;
@@ -259,7 +270,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             Framebuffer = swapchainFramebuffers[imageIndex],
             RenderArea = new()
             {
-                Extent = swapchainExtent,
+                Extent = swapchainInfo.Extent,
                 Offset = { X = 0, Y = 0 }
             }
         };
@@ -282,8 +293,8 @@ unsafe public partial class VulkanRenderer : IDisposable
         {
             X = 0.0f,
             Y = 0.0f,
-            Width = swapchainExtent.Width,
-            Height = swapchainExtent.Height,
+            Width = swapchainInfo.Extent.Width,
+            Height = swapchainInfo.Extent.Height,
             MinDepth = 0.0f,
             MaxDepth = 1.0f,
         };
@@ -292,7 +303,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         Rect2D scissor = new()
         {
             Offset = { X = 0, Y = 0 },
-            Extent = swapchainExtent
+            Extent = swapchainInfo.Extent
         };
         vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
 
@@ -559,8 +570,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         SilkMarshal.Free((nint) deviceInfo.PpEnabledExtensionNames);
     }
 
-    void CreateSwapchain(out KhrSwapchain khrSwapchain, out SwapchainKHR swapchain,
-            out Image[] swapchainImages, out Format swapchainImageFormat, out Extent2D swapchainExtent)
+    void CreateSwapchain(out SwapchainInfo swapchainInfo)
     {
         var swapchainSupportDetails = QuerySwapChainSupport(physicalDevice);
 
@@ -574,7 +584,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             imageCount = swapchainSupportDetails.Capabilities.MaxImageCount;
         }
 
-        SwapchainCreateInfoKHR swapchainInfo = new()
+        SwapchainCreateInfoKHR swapchainCreateInfo = new()
         {
             SType = StructureType.SwapchainCreateInfoKhr,
             Surface = surface,
@@ -591,41 +601,58 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         if (indices.GraphicsFamily != indices.PresentFamily)
         {
-            swapchainInfo.ImageSharingMode = SharingMode.Concurrent;
-            swapchainInfo.QueueFamilyIndexCount = 2;
-            swapchainInfo.PQueueFamilyIndices = queueFamilyIndices;
+            swapchainCreateInfo.ImageSharingMode = SharingMode.Concurrent;
+            swapchainCreateInfo.QueueFamilyIndexCount = 2;
+            swapchainCreateInfo.PQueueFamilyIndices = queueFamilyIndices;
         }
         else
         {
-            swapchainInfo.ImageSharingMode = SharingMode.Exclusive;
+            swapchainCreateInfo.ImageSharingMode = SharingMode.Exclusive;
         }
 
-        swapchainInfo.PreTransform = swapchainSupportDetails.Capabilities.CurrentTransform;
-        swapchainInfo.CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr;
-        swapchainInfo.PresentMode = presentMode;
-        swapchainInfo.Clipped = true;
-        swapchainInfo.OldSwapchain = default;
+        swapchainCreateInfo.PreTransform = swapchainSupportDetails.Capabilities.CurrentTransform;
+        swapchainCreateInfo.CompositeAlpha = CompositeAlphaFlagsKHR.OpaqueBitKhr;
+        swapchainCreateInfo.PresentMode = presentMode;
+        swapchainCreateInfo.Clipped = true;
+        swapchainCreateInfo.OldSwapchain = default;
 
-        if (!vk.TryGetDeviceExtension(instance, device, out khrSwapchain))
+        if (!vk.TryGetDeviceExtension(instance, device, out KhrSwapchain khrSwapchain))
         {
             throw new Exception("VK_KHR_swapchain extension not found!");
         }
 
-        if (khrSwapchain.CreateSwapchain(device, in swapchainInfo, null, out swapchain) != Result.Success)
+        if (khrSwapchain.CreateSwapchain(device, in swapchainCreateInfo, null, out var swapchain) != Result.Success)
         {
             throw new Exception("Failded to create swapchain!");
         }
 
         uint swapchainImageCount = 0;
         khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, null);
-        swapchainImages = new Image[swapchainImageCount];
+        var swapchainImages = new Image[swapchainImageCount];
         fixed (Image* swapchainImagesPtr = swapchainImages)
         {
             khrSwapchain.GetSwapchainImages(device, swapchain, ref swapchainImageCount, swapchainImagesPtr);
         }
 
-        swapchainImageFormat = surfaceFormat.Format;
-        swapchainExtent = extent;
+        var swapchainImageFormat = surfaceFormat.Format;
+        var swapchainExtent = extent;
+
+        // create image views
+        var swapchainImageViews = new ImageView[swapchainImages.Length];
+        for (int i = 0; i < swapchainImages.Length; i++)
+        {
+            swapchainImageViews[i] = CreateImageView(swapchainImages[i], swapchainImageFormat, ImageAspectFlags.ColorBit);
+        }
+
+        swapchainInfo =  new SwapchainInfo
+        {
+            KhrSwapchain = khrSwapchain,
+            Swapchain = swapchain,
+            Images = swapchainImages,
+            ImageViews = swapchainImageViews,
+            ImageFormat = swapchainImageFormat,
+            Extent = swapchainExtent
+        };
     }
 
     void CleanupSwapchain()
@@ -639,12 +666,12 @@ unsafe public partial class VulkanRenderer : IDisposable
             vk.DestroyFramebuffer(device, framebuffer, null);
         }
 
-        foreach (var imageView in swapchainImageViews)
+        foreach (var imageView in swapchainInfo.ImageViews)
         {
             vk.DestroyImageView(device, imageView, null);
         }
 
-        khrSwapchain.DestroySwapchain(device, swapchain, null);
+        swapchainInfo.KhrSwapchain.DestroySwapchain(device, swapchainInfo.Swapchain, null);
     }
 
     void RecreateSwapchain()
@@ -660,27 +687,16 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         vk.DeviceWaitIdle(device);
 
-        CreateSwapchain(out khrSwapchain, out swapchain, out swapchainImages, out swapchainImageFormat, out swapchainExtent);
-        CreateImageViews(out swapchainImageViews);
+        CreateSwapchain(out swapchainInfo);
         CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
         CreateFramebuffers(out swapchainFramebuffers);
-    }
-
-    void CreateImageViews(out ImageView[] imageViews) 
-    {
-        imageViews = new ImageView[swapchainImages.Length];
-
-        for (int i = 0; i < swapchainImages.Length; i++)
-        {
-            imageViews[i] = CreateImageView(swapchainImages[i], swapchainImageFormat, ImageAspectFlags.ColorBit);
-        }
     }
 
     void CreateRenderPass(out RenderPass renderPass)
     {
         AttachmentDescription colorAttachment = new()
         {
-            Format = swapchainImageFormat,
+            Format = swapchainInfo.ImageFormat,
             Samples = SampleCountFlags.Count1Bit,
             LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
@@ -1075,18 +1091,18 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     void CreateFramebuffers(out Framebuffer[] framebuffers)
     {
-        framebuffers = new Framebuffer[swapchainImageViews.Length];
+        framebuffers = new Framebuffer[swapchainInfo.ImageViews.Length];
 
-        for (int i = 0; i < swapchainImageViews.Length; i++)
+        for (int i = 0; i < swapchainInfo.ImageViews.Length; i++)
         {
-            var attachments = new ImageView[] { swapchainImageViews[i], depthImageView };
+            var attachments = new ImageView[] { swapchainInfo.ImageViews[i], depthImageView };
 
             FramebufferCreateInfo framebufferInfo = new()
             {
                 SType = StructureType.FramebufferCreateInfo,
                 RenderPass = renderPass,
-                Width = swapchainExtent.Width,
-                Height = swapchainExtent.Height,
+                Width = swapchainInfo.Extent.Width,
+                Height = swapchainInfo.Extent.Height,
                 Layers = 1
             };
 
@@ -1121,7 +1137,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     void CreateDepthResources(out Image depthImage, out DeviceMemory depthImageMemory, out ImageView depthImageView)
     {
         var depthFormat = FindDepthFormat();
-        CreateImage(swapchainExtent.Width, swapchainExtent.Height, depthFormat,
+        CreateImage(swapchainInfo.Extent.Width, swapchainInfo.Extent.Height, depthFormat,
                     ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit,
                     MemoryPropertyFlags.DeviceLocalBit, out depthImage, out depthImageMemory);
         depthImageView = CreateImageView(depthImage, depthFormat, ImageAspectFlags.DepthBit);
@@ -1475,9 +1491,9 @@ unsafe public partial class VulkanRenderer : IDisposable
         return deviceExtensions.All(availableExtensionNames.Contains);
     }
 
-    SwapChainSupportDetails QuerySwapChainSupport(PhysicalDevice physicalDevice)
+    SwapchainSupportDetails QuerySwapChainSupport(PhysicalDevice physicalDevice)
     {
-        var details = new SwapChainSupportDetails();
+        var details = new SwapchainSupportDetails();
 
         khrSurface.GetPhysicalDeviceSurfaceCapabilities(physicalDevice, surface, out details.Capabilities);
 

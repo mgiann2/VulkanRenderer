@@ -16,8 +16,21 @@ struct GBuffer
     public FramebufferAttachment Depth { get; init; }
 }
 
+struct GRenderPass
+{
+    public GBuffer GBuffer;
+    public RenderPass RenderPass;
+    public Framebuffer Framebuffer;
+}
+
+struct CRenderPass
+{
+
+}
+
 unsafe public partial class VulkanRenderer
 {
+
     FramebufferAttachment CreateFramebufferAttachment(Format format, ImageUsageFlags usage)
     {
         ImageAspectFlags aspectFlags = ImageAspectFlags.None;
@@ -30,7 +43,7 @@ unsafe public partial class VulkanRenderer
             aspectFlags = ImageAspectFlags.DepthBit;
         }
 
-        CreateImage((uint) swapchainExtent.Width, (uint) swapchainExtent.Height,
+        CreateImage((uint) swapchainInfo.Extent.Width, (uint) swapchainInfo.Extent.Height,
                     format, ImageTiling.Optimal, usage | ImageUsageFlags.SampledBit,
                     MemoryPropertyFlags.DeviceLocalBit,
                     out var image, out var imageMemory);
@@ -45,10 +58,10 @@ unsafe public partial class VulkanRenderer
         };
     }
 
-    void CreateGeometryRenderPass()
+    void CreateGeometryRenderPass(out GBuffer gBuffer, out RenderPass renderPass, out Framebuffer framebuffer)
     {
-        // create GBuffer
-        GBuffer gBuffer = new()
+        // create GBuffer attachments
+        gBuffer = new()
         {
             Albedo = CreateFramebufferAttachment(Format.R8G8B8A8Srgb, ImageUsageFlags.ColorAttachmentBit),
             Normal = CreateFramebufferAttachment(Format.R16G16B16Sfloat, ImageUsageFlags.ColorAttachmentBit),
@@ -132,7 +145,7 @@ unsafe public partial class VulkanRenderer
                 DependencyCount = (uint) dependencies.Length
             };
 
-            if (vk.CreateRenderPass(device, in renderPassInfo, null, out var renderPass) != Result.Success)
+            if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
             {
                 throw new Exception("Failed to create geometry render pass!");
             }
@@ -154,20 +167,119 @@ unsafe public partial class VulkanRenderer
                 SType = StructureType.FramebufferCreateInfo,
                 PAttachments = attachmentsPtr,
                 AttachmentCount = (uint) attachments.Length,
-                Width = swapchainExtent.Width,
-                Height = swapchainExtent.Height,
+                Width = swapchainInfo.Extent.Width,
+                Height = swapchainInfo.Extent.Height,
                 Layers = 1
             };
 
-            if (vk.CreateFramebuffer(device, in framebufferInfo, null, out var framebuffer) != Result.Success)
+            if (vk.CreateFramebuffer(device, in framebufferInfo, null, out framebuffer) != Result.Success)
             {
                 throw new Exception("Failed to create geometry framebuffer!");
             }
         }
     }
 
-    void CreateCompositionRenderPass()
+    void CreateCompositionRenderPass(out FramebufferAttachment depthAttachment, out RenderPass renderPass, out Framebuffer[] framebuffers)
     {
+        // create attachments
+        depthAttachment = CreateFramebufferAttachment(FindDepthFormat(), ImageUsageFlags.DepthStencilAttachmentBit);
 
+        // create attachment descriptions
+        AttachmentDescription colorAttachmentDescription = new()
+        {
+            Format = swapchainInfo.ImageFormat,
+            Samples = SampleCountFlags.Count1Bit,
+            LoadOp = AttachmentLoadOp.Clear,
+            StoreOp = AttachmentStoreOp.Store,
+            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilStoreOp = AttachmentStoreOp.DontCare,
+            InitialLayout = ImageLayout.Undefined,
+            FinalLayout = ImageLayout.PresentSrcKhr
+        };
+
+        AttachmentDescription depthAttachmentDescription = new()
+        {
+            Format = depthAttachment.Format,
+            Samples = SampleCountFlags.Count1Bit,
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilStoreOp = AttachmentStoreOp.DontCare,
+            InitialLayout = ImageLayout.Undefined,
+            FinalLayout = ImageLayout.DepthStencilAttachmentOptimal
+        };
+
+        AttachmentReference colorAttachmentRef = new()
+        {
+            Attachment = 0,
+            Layout = ImageLayout.ColorAttachmentOptimal
+        };
+
+        AttachmentReference depthAttachmentRef = new()
+        {
+            Attachment = 1,
+            Layout = ImageLayout.DepthStencilAttachmentOptimal
+        };
+
+        // create render pass
+        SubpassDescription subpass = new()
+        {
+            PipelineBindPoint = PipelineBindPoint.Graphics,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &colorAttachmentRef,
+            PDepthStencilAttachment = &depthAttachmentRef
+        };
+
+        SubpassDependency dependency = new()
+        {
+            SrcSubpass = Vk.SubpassExternal,
+            DstSubpass = 0,
+            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.LateFragmentTestsBit,
+            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
+            SrcAccessMask = AccessFlags.None,
+            DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit
+        };
+
+        var attachmentDescriptions = new AttachmentDescription[] { colorAttachmentDescription, depthAttachmentDescription };
+
+        RenderPassCreateInfo renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassCreateInfo,
+            SubpassCount = 1,
+            PSubpasses = &subpass,
+            DependencyCount = 1,
+            PDependencies = &dependency,
+            AttachmentCount = (uint) attachmentDescriptions.Length,
+        };
+        fixed (AttachmentDescription* attachmentsPtr = attachmentDescriptions)
+            renderPassInfo.PAttachments = attachmentsPtr;
+
+        if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
+        {
+            throw new Exception("Failed to create composition render pass!");
+        }
+
+        // create framebuffers
+        framebuffers = new Framebuffer[MaxFramesInFlight];
+        
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            var attachments = new ImageView[] { swapchainInfo.ImageViews[i], depthAttachment.ImageView };
+            FramebufferCreateInfo framebufferInfo = new()
+            {
+                SType = StructureType.FramebufferCreateInfo,
+                AttachmentCount = (uint) attachments.Length,
+                Width = swapchainInfo.Extent.Width,
+                Height = swapchainInfo.Extent.Height,
+                Layers = 1
+            };
+            fixed (ImageView* attachmentsPtr = attachments)
+                framebufferInfo.PAttachments = attachmentsPtr;
+
+            if (vk.CreateFramebuffer(device, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create framebuffer!");
+            }
+        }
     }
 }
