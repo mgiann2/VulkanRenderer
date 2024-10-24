@@ -101,6 +101,13 @@ unsafe public partial class VulkanRenderer : IDisposable
     Buffer[] uniformBuffers;
     DeviceMemory[] uniformBufferMemory;
 
+    DescriptorSetLayout gBufferDescriptorSetLayout;
+    DescriptorPool gBufferDescriptorPool;
+
+    DescriptorSetLayout compositionDescriptorSetLayout;
+    DescriptorPool compositionDescriptorPool;
+    DescriptorSet[] compositionDescriptorSets;
+
     DescriptorSetLayout uboDescriptorSetLayout;
     DescriptorPool uboDescriptorPool;
     DescriptorSet[] uboDescriptorSets;
@@ -143,17 +150,21 @@ unsafe public partial class VulkanRenderer : IDisposable
         PickPhysicalDevice(out physicalDevice);
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out swapchainInfo);
+
         CreateRenderPass(out renderPass);
         CreateDescriptorSetLayouts(out uboDescriptorSetLayout, out samplerDescriptorSetLayout);
         CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
         CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
         CreateFramebuffers(out swapchainFramebuffers);
+
         CreateCommandPool(out commandPool);
-        CreateTextureSampler(out textureSampler);
         CreateCommandBuffers(out commandBuffers);
+
+        CreateTextureSampler(out textureSampler);
         CreateUniformBuffers(out uniformBuffers, out uniformBufferMemory);
         CreateDescriptorPools(out uboDescriptorPool, out samplerDescriptorPool);
         CreateUBODescriptorSets(out uboDescriptorSets);
+
         CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
         window.FramebufferResize += OnFramebufferResize;
