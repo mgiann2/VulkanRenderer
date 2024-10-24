@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 
@@ -304,9 +305,116 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
+    DescriptorSet[] CreateGBufferDescriptorSets(ImageView albedoView, ImageView normalView, ImageView metalnessView)
+    {
+        var gBufferDescriptorSets = new DescriptorSet[MaxFramesInFlight];
+
+        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+        Array.Fill(layouts, gBufferDescriptorSetLayout);
+        
+        fixed (DescriptorSetLayout* layoutsPtr = layouts)
+        {
+            DescriptorSetAllocateInfo allocInfo = new()
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                PSetLayouts = layoutsPtr,
+                DescriptorSetCount = (uint) layouts.Length,
+                DescriptorPool = gBufferDescriptorPool
+            };
+            
+            fixed (DescriptorSet* gBufferDescriptorSetsPtr = gBufferDescriptorSets)
+            {
+                if (vk.AllocateDescriptorSets(device, in allocInfo, gBufferDescriptorSetsPtr) != Result.Success)
+                {
+                    throw new Exception("Failed to allocate descriptor sets!");
+                }
+            }
+        }
+
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            DescriptorBufferInfo uniformBufferInfo = new()
+            {
+                Buffer = uniformBuffers[i],
+                Offset = 0,
+                Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
+            };
+
+            DescriptorImageInfo albedoInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = albedoView,
+                Sampler = textureSampler
+            };
+
+            DescriptorImageInfo normalInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = normalView,
+                Sampler = textureSampler
+            };
+
+            DescriptorImageInfo metalnessInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = metalnessView,
+                Sampler = textureSampler
+            };
+
+            var descriptorWrites = new WriteDescriptorSet[]
+            {
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = gBufferDescriptorSets[i],
+                    DstBinding = 0,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.UniformBuffer,
+                    DescriptorCount = 1,
+                    PBufferInfo = &uniformBufferInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = compositionDescriptorSets[i],
+                    DstBinding = 1,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &albedoInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = compositionDescriptorSets[i],
+                    DstBinding = 2,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &normalInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = gBufferDescriptorSets[i],
+                    DstBinding = 3,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &metalnessInfo
+                }
+            };
+
+            fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
+                vk.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
+        }
+
+        return gBufferDescriptorSets;
+    }
+
     DescriptorSet[] CreateCompositionDescriptorSets()
     {
-        compositionDescriptorSets = new DescriptorSet[MaxFramesInFlight];
+        var compositionDescriptorSets = new DescriptorSet[MaxFramesInFlight];
 
         var layouts = new DescriptorSetLayout[MaxFramesInFlight];
         Array.Fill(layouts, compositionDescriptorSetLayout);
