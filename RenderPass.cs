@@ -30,7 +30,6 @@ struct CRenderPass
 
 unsafe public partial class VulkanRenderer
 {
-
     FramebufferAttachment CreateFramebufferAttachment(Format format, ImageUsageFlags usage)
     {
         ImageAspectFlags aspectFlags = ImageAspectFlags.None;
