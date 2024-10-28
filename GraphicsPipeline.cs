@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 
-struct GraphicsPipeline
+public struct GraphicsPipeline
 {
     public Pipeline Pipeline { get; init; }
     public PipelineLayout Layout { get; init; }
@@ -14,7 +14,8 @@ unsafe public partial class VulkanRenderer
             string vertexShaderPath,
             string fragmentShaderPath,
             RenderPass renderPass,
-            DescriptorSetLayout[] descriptorSetLayouts)
+            DescriptorSetLayout[] descriptorSetLayouts,
+            uint colorAttachmentCount)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(vertexShaderPath);
         byte[] fragmentShaderCode = File.ReadAllBytes(fragmentShaderPath);
@@ -78,19 +79,24 @@ unsafe public partial class VulkanRenderer
             RasterizationSamples = SampleCountFlags.Count1Bit
         };
 
-        PipelineColorBlendAttachmentState colorBlendAttachment = new()
+        var colorBlendAttachments = new PipelineColorBlendAttachmentState[colorAttachmentCount];
+        for (int i = 0; i < colorAttachmentCount; i++)
         {
-            ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
-            BlendEnable = false
-        };
+            colorBlendAttachments[i] = new()
+            {
+                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
+                BlendEnable = false
+            };
+        }
 
         PipelineColorBlendStateCreateInfo colorBlendInfo = new()
         {
             SType = StructureType.PipelineColorBlendStateCreateInfo,
             LogicOpEnable = false,
-            AttachmentCount = 1,
-            PAttachments = &colorBlendAttachment
+            AttachmentCount = colorAttachmentCount,
         };
+        fixed (PipelineColorBlendAttachmentState* colorBlendAttachmentsPtr = colorBlendAttachments)
+            colorBlendInfo.PAttachments = colorBlendAttachmentsPtr;
 
         PipelineDepthStencilStateCreateInfo depthStencil = new()
         {
@@ -114,6 +120,18 @@ unsafe public partial class VulkanRenderer
             throw new Exception("Failed to create pipeline layout!");
         }
 
+        var bindingDescription = Vertex.GetBindingDescription();
+        var attributeDescriptions = Vertex.GetAttributeDescriptions();
+        PipelineVertexInputStateCreateInfo vertexInfo = new()
+        {
+            SType = StructureType.PipelineVertexInputStateCreateInfo,
+            VertexBindingDescriptionCount = 1,
+            PVertexBindingDescriptions = &bindingDescription,
+            VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length
+        };
+        fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
+            vertexInfo.PVertexAttributeDescriptions = attributeDescriptionsPtr;
+
         GraphicsPipelineCreateInfo pipelineInfo = new()
         {
             SType = StructureType.GraphicsPipelineCreateInfo,
@@ -126,6 +144,7 @@ unsafe public partial class VulkanRenderer
             PColorBlendState = &colorBlendInfo,
             PMultisampleState = &multisampleInfo,
             PRasterizationState = &rasterizerInfo,
+            PVertexInputState = &vertexInfo,
             Layout = pipelineLayout,
             RenderPass = renderPass,
             Subpass = 0

@@ -46,7 +46,7 @@ public struct UniformBufferObject
     public Matrix4X4<float> proj;
 }
 
-unsafe public partial class VulkanRenderer : IDisposable
+unsafe public partial class VulkanRenderer
 {
     enum RendererState
     {
@@ -57,6 +57,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     readonly bool EnableValidationLayers;
     const int MaxFramesInFlight = 2;
+    const uint MaxGBufferDescriptorSets = 20;
 
     readonly string[] validationLayers = new[]
     {
@@ -92,7 +93,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     Framebuffer compositionFramebuffer;
 
     GBuffer gBuffer;
-    RenderPass geometryPass;
+    RenderPass geometryRenderPass;
     Framebuffer geometryFramebuffer;
 
     PipelineLayout pipelineLayout;
@@ -107,6 +108,9 @@ unsafe public partial class VulkanRenderer : IDisposable
     DescriptorSetLayout compositionDescriptorSetLayout;
     DescriptorPool compositionDescriptorPool;
     DescriptorSet[] compositionDescriptorSets;
+
+    GraphicsPipeline geometryPipeline;
+    GraphicsPipeline compositionPipeline;
 
     DescriptorSetLayout uboDescriptorSetLayout;
     DescriptorPool uboDescriptorPool;
@@ -151,19 +155,44 @@ unsafe public partial class VulkanRenderer : IDisposable
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out swapchainInfo);
 
-        CreateRenderPass(out renderPass);
-        CreateDescriptorSetLayouts(out uboDescriptorSetLayout, out samplerDescriptorSetLayout);
-        CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
-        CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
-        CreateFramebuffers(out swapchainFramebuffers);
+        // create render passes
+        CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
+        CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
 
+        CreateTextureSampler(out textureSampler);
+
+        // Create descriptor pools
+        gBufferDescriptorPool = CreateGBufferDescriptorPool(MaxGBufferDescriptorSets);
+        compositionDescriptorPool = CreateCompositionDescriptorPool();
+
+        // Create descriptor set layouts
+        gBufferDescriptorSetLayout = CreateGBufferDescriptorSetLayout();
+        compositionDescriptorSetLayout = CreateCompositionDescriptorSetLayout();
+
+        // Create composition pass descriptor set
+        compositionDescriptorSets = CreateCompositionDescriptorSets();
+
+        // Create pipelines
+        geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
+                geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 3);
+        compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
+                compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
+
+        // old code
+        // CreateRenderPass(out renderPass);
+        // CreateDescriptorSetLayouts(out uboDescriptorSetLayout, out samplerDescriptorSetLayout);
+        // CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
+        // CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
+        // CreateFramebuffers(out swapchainFramebuffers);
+
+        // create commnad pool and buffers
         CreateCommandPool(out commandPool);
         CreateCommandBuffers(out commandBuffers);
 
-        CreateTextureSampler(out textureSampler);
-        CreateUniformBuffers(out uniformBuffers, out uniformBufferMemory);
-        CreateDescriptorPools(out uboDescriptorPool, out samplerDescriptorPool);
-        CreateUBODescriptorSets(out uboDescriptorSets);
+        // old code
+        // CreateUniformBuffers(out uniformBuffers, out uniformBufferMemory);
+        // CreateDescriptorPools(out uboDescriptorPool, out samplerDescriptorPool);
+        // CreateUBODescriptorSets(out uboDescriptorSets);
 
         CreateSyncObjects(out imageAvailableSemaphores, out renderFinishedSemaphores, out inFlightFences);
 

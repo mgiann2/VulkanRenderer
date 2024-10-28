@@ -21,7 +21,7 @@ class Program
 
         var renderer = new VulkanRenderer(window, true);
 
-        var model = renderer.LoadModel("models/viking_room.obj", "textures/viking_room.png");
+        // var model = renderer.LoadModel("models/viking_room.obj", "textures/viking_room.png");
 
         window.Render += (double deltaTime) =>
         {
@@ -37,24 +37,24 @@ class Program
             ubo.proj.M22 *= -1;
 
             // start rendering
-            renderer.BeginFrame();
-            renderer.BeginRenderPass();
-
-            renderer.UpdateUniformBuffer(ubo);
-
-            renderer.Bind(model.IndexBuffer);
-            renderer.Bind(model.VertexBuffer);
-            renderer.BindTexture(model.Texture);
-            renderer.DrawIndexed(model.IndexBuffer.IndexCount);
-
-            renderer.EndRenderPass();
-            renderer.EndFrame();
+            // renderer.BeginFrame();
+            // renderer.BeginRenderPass();
+            //
+            // renderer.UpdateUniformBuffer(ubo);
+            //
+            // renderer.Bind(model.IndexBuffer);
+            // renderer.Bind(model.VertexBuffer);
+            // renderer.BindTexture(model.Texture);
+            // renderer.DrawIndexed(model.IndexBuffer.IndexCount);
+            //
+            // renderer.EndRenderPass();
+            // renderer.EndFrame();
         };
 
         window.Closing += () =>
         {
             renderer.DeviceWaitIdle();
-            renderer.UnloadModel(model);
+            // renderer.UnloadModel(model);
         };
 
         window.Run();

@@ -63,8 +63,8 @@ unsafe public partial class VulkanRenderer
         gBuffer = new()
         {
             Albedo = CreateFramebufferAttachment(Format.R8G8B8A8Srgb, ImageUsageFlags.ColorAttachmentBit),
-            Normal = CreateFramebufferAttachment(Format.R16G16B16Sfloat, ImageUsageFlags.ColorAttachmentBit),
-            Specular = CreateFramebufferAttachment(Format.R8G8B8Srgb, ImageUsageFlags.ColorAttachmentBit),
+            Normal = CreateFramebufferAttachment(Format.R8G8B8A8Srgb, ImageUsageFlags.ColorAttachmentBit),
+            Specular = CreateFramebufferAttachment(Format.R8G8B8A8Srgb, ImageUsageFlags.ColorAttachmentBit),
             Depth = CreateFramebufferAttachment(FindDepthFormat(), ImageUsageFlags.DepthStencilAttachmentBit)
         };
 
@@ -165,6 +165,7 @@ unsafe public partial class VulkanRenderer
             {
                 SType = StructureType.FramebufferCreateInfo,
                 PAttachments = attachmentsPtr,
+                RenderPass = renderPass,
                 AttachmentCount = (uint) attachments.Length,
                 Width = swapchainInfo.Extent.Width,
                 Height = swapchainInfo.Extent.Height,
@@ -268,6 +269,7 @@ unsafe public partial class VulkanRenderer
             {
                 SType = StructureType.FramebufferCreateInfo,
                 AttachmentCount = (uint) attachments.Length,
+                RenderPass = renderPass,
                 Width = swapchainInfo.Extent.Width,
                 Height = swapchainInfo.Extent.Height,
                 Layers = 1
