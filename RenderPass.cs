@@ -13,6 +13,7 @@ struct GBuffer
     public FramebufferAttachment Albedo { get; init; }
     public FramebufferAttachment Normal { get; init; }
     public FramebufferAttachment Specular { get; init; }
+    public FramebufferAttachment Position { get; init; }
     public FramebufferAttachment Depth { get; init; }
 }
 
@@ -62,14 +63,15 @@ unsafe public partial class VulkanRenderer
         // create GBuffer attachments
         gBuffer = new()
         {
-            Albedo = CreateFramebufferAttachment(Format.R8G8B8A8Srgb, ImageUsageFlags.ColorAttachmentBit),
-            Normal = CreateFramebufferAttachment(Format.R8G8B8A8Srgb, ImageUsageFlags.ColorAttachmentBit),
-            Specular = CreateFramebufferAttachment(Format.R8G8B8A8Srgb, ImageUsageFlags.ColorAttachmentBit),
+            Albedo = CreateFramebufferAttachment(Format.R8G8B8A8Unorm, ImageUsageFlags.ColorAttachmentBit),
+            Normal = CreateFramebufferAttachment(Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit),
+            Specular = CreateFramebufferAttachment(Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit),
+            Position = CreateFramebufferAttachment(Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit),
             Depth = CreateFramebufferAttachment(FindDepthFormat(), ImageUsageFlags.DepthStencilAttachmentBit)
         };
 
         // create attachment descriptions
-        var attachmentDescriptions = new AttachmentDescription[4];
+        var attachmentDescriptions = new AttachmentDescription[5];
 
         for (int i = 0;  i < attachmentDescriptions.Length; i++)
         {
@@ -81,13 +83,14 @@ unsafe public partial class VulkanRenderer
                 StencilLoadOp = AttachmentLoadOp.DontCare,
                 StencilStoreOp = AttachmentStoreOp.DontCare,
                 InitialLayout = ImageLayout.Undefined,
-                FinalLayout = (i == 3) ? ImageLayout.DepthStencilAttachmentOptimal : ImageLayout.ShaderReadOnlyOptimal
+                FinalLayout = (i == 4) ? ImageLayout.DepthStencilAttachmentOptimal : ImageLayout.ShaderReadOnlyOptimal
             };
         }
         attachmentDescriptions[0].Format = gBuffer.Albedo.Format;
         attachmentDescriptions[1].Format = gBuffer.Normal.Format;
         attachmentDescriptions[2].Format = gBuffer.Specular.Format;
-        attachmentDescriptions[3].Format = gBuffer.Depth.Format;
+        attachmentDescriptions[3].Format = gBuffer.Position.Format;
+        attachmentDescriptions[4].Format = gBuffer.Depth.Format;
 
         // create attachment references
         var colorReferences = new AttachmentReference[]
@@ -95,8 +98,9 @@ unsafe public partial class VulkanRenderer
             new() { Attachment = 0, Layout = ImageLayout.ColorAttachmentOptimal },
             new() { Attachment = 1, Layout = ImageLayout.ColorAttachmentOptimal },
             new() { Attachment = 2, Layout = ImageLayout.ColorAttachmentOptimal },
+            new() { Attachment = 3, Layout = ImageLayout.ColorAttachmentOptimal }
         };
-        AttachmentReference depthReference = new() { Attachment = 3, Layout = ImageLayout.DepthStencilAttachmentOptimal };
+        AttachmentReference depthReference = new() { Attachment = 4, Layout = ImageLayout.DepthStencilAttachmentOptimal };
 
         // create render pass
         SubpassDescription subpass = new()
@@ -156,6 +160,7 @@ unsafe public partial class VulkanRenderer
             gBuffer.Albedo.ImageView,
             gBuffer.Normal.ImageView,
             gBuffer.Specular.ImageView,
+            gBuffer.Position.ImageView,
             gBuffer.Depth.ImageView
         };
 

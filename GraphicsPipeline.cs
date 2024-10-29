@@ -160,7 +160,8 @@ unsafe public partial class VulkanRenderer
 
         return new GraphicsPipeline
         {
-            Layout = pipelineLayout
+            Layout = pipelineLayout,
+            Pipeline = pipeline
         };
     }
 
@@ -248,12 +249,21 @@ unsafe public partial class VulkanRenderer
             StageFlags = ShaderStageFlags.FragmentBit
         };
 
-        var bindings = stackalloc[] { albedoSamplerBinding, normalSamplerBinding, specularSamplerBinding };
+        DescriptorSetLayoutBinding positionSamplerBinding = new()
+        {
+            Binding = 3,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImmutableSamplers = default,
+            StageFlags = ShaderStageFlags.FragmentBit
+        };
+
+        var bindings = stackalloc[] { albedoSamplerBinding, normalSamplerBinding, specularSamplerBinding, positionSamplerBinding };
 
         DescriptorSetLayoutCreateInfo layoutInfo = new()
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 3,
+            BindingCount = 4,
             PBindings = bindings
         };
 
@@ -277,7 +287,7 @@ unsafe public partial class VulkanRenderer
             new DescriptorPoolSize
             {
                 Type = DescriptorType.CombinedImageSampler,
-                DescriptorCount = (uint) MaxFramesInFlight * 3 * maxSets
+                DescriptorCount = (uint) MaxFramesInFlight * 4 * maxSets
             }
         };
 
@@ -304,7 +314,7 @@ unsafe public partial class VulkanRenderer
             new DescriptorPoolSize
             {
                 Type = DescriptorType.CombinedImageSampler,
-                DescriptorCount = (uint) MaxFramesInFlight * 3
+                DescriptorCount = (uint) MaxFramesInFlight * 4
             }
         };
 
@@ -480,6 +490,13 @@ unsafe public partial class VulkanRenderer
                 Sampler = textureSampler
             };
 
+            DescriptorImageInfo positionInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = gBuffer.Position.ImageView,
+                Sampler = textureSampler
+            };
+
             var descriptorWrites = new WriteDescriptorSet[]
             {
                 new()
@@ -511,6 +528,16 @@ unsafe public partial class VulkanRenderer
                     DescriptorType = DescriptorType.CombinedImageSampler,
                     DescriptorCount = 1,
                     PImageInfo = &specularInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = compositionDescriptorSets[i],
+                    DstBinding = 3,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &positionInfo
                 }
             };
 

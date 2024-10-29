@@ -174,7 +174,7 @@ unsafe public partial class VulkanRenderer
 
         // Create pipelines
         geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
-                geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 3);
+                geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 4);
         compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
                 compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
 
@@ -354,6 +354,119 @@ unsafe public partial class VulkanRenderer
         rendererState = RendererState.UsingRenderPass;
     }
 
+    public void BeginGeometryRenderPass()
+    {
+        if (rendererState != RendererState.DrawingFrame) throw new Exception("Renderer either has not started a frame or has already started a render pass!");
+
+        RenderPassBeginInfo renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassBeginInfo,
+            RenderPass = geometryRenderPass,
+            Framebuffer = geometryFramebuffer,
+            RenderArea = new()
+            {
+                Extent = swapchainInfo.Extent,
+                Offset = { X = 0, Y = 0 }
+            }
+        };
+
+        ClearValue[] clearColors = new ClearValue[] 
+        { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
+        };
+
+        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
+        fixed (ClearValue* clearColorsPtr = clearColors)
+            renderPassInfo.PClearValues = clearColorsPtr;
+
+        vk.CmdBeginRenderPass(commandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
+
+        vk.CmdBindPipeline(commandBuffers[currentFrame], PipelineBindPoint.Graphics, geometryPipeline.Pipeline);
+
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = swapchainInfo.Extent.Width,
+            Height = swapchainInfo.Extent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f,
+        };
+        vk.CmdSetViewport(commandBuffers[currentFrame], 0, 1, in viewport);
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapchainInfo.Extent
+        };
+        vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
+
+        // TODO: Determine if there is better location for binding descriptor sets
+        // vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        //                          pipelineLayout, 0, 1, in uboDescriptorSets[currentFrame], 0, default);
+
+        rendererState = RendererState.UsingRenderPass;
+    }
+
+    public void BeginCompositionRenderPass()
+    {
+        if (rendererState != RendererState.DrawingFrame) throw new Exception("Renderer either has not started a frame or has already started a render pass!");
+
+        RenderPassBeginInfo renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassBeginInfo,
+            RenderPass = compositionRenderPass,
+            Framebuffer = swapchainFramebuffers[imageIndex],
+            RenderArea = new()
+            {
+                Extent = swapchainInfo.Extent,
+                Offset = { X = 0, Y = 0 }
+            }
+        };
+
+        ClearValue[] clearColors = new ClearValue[] 
+        { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
+        };
+
+        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
+        fixed (ClearValue* clearColorsPtr = clearColors)
+            renderPassInfo.PClearValues = clearColorsPtr;
+
+        vk.CmdBeginRenderPass(commandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
+
+        vk.CmdBindPipeline(commandBuffers[currentFrame], PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
+
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = swapchainInfo.Extent.Width,
+            Height = swapchainInfo.Extent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f,
+        };
+        vk.CmdSetViewport(commandBuffers[currentFrame], 0, 1, in viewport);
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapchainInfo.Extent
+        };
+        vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
+
+        // TODO: Determine if there is better location for binding descriptor sets
+        // vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        //                          pipelineLayout, 0, 1, in uboDescriptorSets[currentFrame], 0, default);
+
+        rendererState = RendererState.UsingRenderPass;
+    }
+
     public void EndRenderPass()
     {
         if (rendererState != RendererState.UsingRenderPass) throw new Exception("Tried to end render pass before beginning a frame or render pass!");
@@ -384,6 +497,11 @@ unsafe public partial class VulkanRenderer
         vk.MapMemory(device, uniformBufferMemory[currentFrame], 0, (ulong)Unsafe.SizeOf<UniformBufferObject>(), 0, &data);
         new Span<UniformBufferObject>(data, 1)[0] = ubo;
         vk.UnmapMemory(device, uniformBufferMemory[currentFrame]);
+    }
+
+    public void DrawFrame()
+    {
+
     }
 
     void CreateBuffer(ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, out Buffer newBuffer, out DeviceMemory newBufferMemory)

@@ -37,18 +37,15 @@ class Program
             ubo.proj.M22 *= -1;
 
             // start rendering
-            // renderer.BeginFrame();
-            // renderer.BeginRenderPass();
-            //
-            // renderer.UpdateUniformBuffer(ubo);
-            //
-            // renderer.Bind(model.IndexBuffer);
-            // renderer.Bind(model.VertexBuffer);
-            // renderer.BindTexture(model.Texture);
-            // renderer.DrawIndexed(model.IndexBuffer.IndexCount);
-            //
-            // renderer.EndRenderPass();
-            // renderer.EndFrame();
+            renderer.BeginFrame();
+
+            renderer.BeginGeometryRenderPass();
+            renderer.EndRenderPass();
+
+            renderer.BeginCompositionRenderPass();
+            renderer.EndRenderPass();
+
+            renderer.EndFrame();
         };
 
         window.Closing += () =>
