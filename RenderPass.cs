@@ -24,11 +24,6 @@ struct GRenderPass
     public Framebuffer Framebuffer;
 }
 
-struct CRenderPass
-{
-
-}
-
 unsafe public partial class VulkanRenderer
 {
     FramebufferAttachment CreateFramebufferAttachment(Format format, ImageUsageFlags usage)
@@ -122,6 +117,7 @@ unsafe public partial class VulkanRenderer
                 DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
                 SrcAccessMask = AccessFlags.MemoryReadBit,
                 DstAccessMask = AccessFlags.ColorAttachmentReadBit | AccessFlags.ColorAttachmentWriteBit,
+                DependencyFlags = DependencyFlags.ByRegionBit
             },
             new()
             {
@@ -130,7 +126,8 @@ unsafe public partial class VulkanRenderer
                 SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
                 DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
                 SrcAccessMask = AccessFlags.ColorAttachmentReadBit | AccessFlags.ColorAttachmentWriteBit,
-                DstAccessMask = AccessFlags.MemoryReadBit
+                DstAccessMask = AccessFlags.MemoryReadBit,
+                DependencyFlags = DependencyFlags.ByRegionBit
             }
         };
 
@@ -206,9 +203,9 @@ unsafe public partial class VulkanRenderer
         {
             Format = depthAttachment.Format,
             Samples = SampleCountFlags.Count1Bit,
-            LoadOp = AttachmentLoadOp.Load,
+            LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
-            StencilLoadOp = AttachmentLoadOp.DontCare,
+            StencilLoadOp = AttachmentLoadOp.Clear,
             StencilStoreOp = AttachmentStoreOp.DontCare,
             InitialLayout = ImageLayout.Undefined,
             FinalLayout = ImageLayout.DepthStencilAttachmentOptimal
@@ -235,39 +232,55 @@ unsafe public partial class VulkanRenderer
             PDepthStencilAttachment = &depthAttachmentRef
         };
 
-        SubpassDependency dependency = new()
+        var dependencies = new SubpassDependency[]
         {
-            SrcSubpass = Vk.SubpassExternal,
-            DstSubpass = 0,
-            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.LateFragmentTestsBit,
-            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
-            SrcAccessMask = AccessFlags.None,
-            DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit
+            new()
+            {
+                SrcSubpass = Vk.SubpassExternal,
+                DstSubpass = 0,
+                SrcStageMask = PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                DstStageMask = PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                SrcAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
+                DstAccessMask = AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+            },
+            new()
+            {
+                SrcSubpass = Vk.SubpassExternal,
+                DstSubpass = 0,
+                SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+                DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+                SrcAccessMask = 0,
+                DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+            }
         };
 
         var attachmentDescriptions = new AttachmentDescription[] { colorAttachmentDescription, depthAttachmentDescription };
 
-        RenderPassCreateInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassCreateInfo,
-            SubpassCount = 1,
-            PSubpasses = &subpass,
-            DependencyCount = 1,
-            PDependencies = &dependency,
-            AttachmentCount = (uint) attachmentDescriptions.Length,
-        };
         fixed (AttachmentDescription* attachmentsPtr = attachmentDescriptions)
-            renderPassInfo.PAttachments = attachmentsPtr;
-
-        if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
+        fixed (SubpassDependency* dependenciesPtr = dependencies)
         {
-            throw new Exception("Failed to create composition render pass!");
+            RenderPassCreateInfo renderPassInfo = new()
+            {
+                SType = StructureType.RenderPassCreateInfo,
+                SubpassCount = 1,
+                PSubpasses = &subpass,
+                DependencyCount = 1,
+                PDependencies = dependenciesPtr,
+                AttachmentCount = (uint) attachmentDescriptions.Length,
+                PAttachments = attachmentsPtr
+            };
+
+            if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
+            {
+                throw new Exception("Failed to create composition render pass!");
+            }
         }
 
         // create framebuffers
-        framebuffers = new Framebuffer[MaxFramesInFlight];
+        int swapchainImageCount = swapchainInfo.ImageViews.Length;
+        framebuffers = new Framebuffer[swapchainImageCount];
         
-        for (int i = 0; i < MaxFramesInFlight; i++)
+        for (int i = 0; i < swapchainImageCount; i++)
         {
             var attachments = new ImageView[] { swapchainInfo.ImageViews[i], depthAttachment.ImageView };
             FramebufferCreateInfo framebufferInfo = new()

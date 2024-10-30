@@ -58,7 +58,6 @@ unsafe public partial class VulkanRenderer
                         Vertex vertex = new()
                         {
                             pos = new Vector3D<float>(position.X, position.Y, position.Z),
-                            color = new Vector3D<float>(1.0f, 1.0f, 1.0f),
                             texCoord = new Vector2D<float>(texture.X, 1.0f - texture.Y)
                         };
 

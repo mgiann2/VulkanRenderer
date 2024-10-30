@@ -10,6 +10,7 @@ layout(location = 0) in vec2 inTexCoord;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    outColor = texture(albedoSampler, inTexCoord);
+    // outColor = texture(albedoSampler, inTexCoord);
+    outColor = vec4(inTexCoord.x, inTexCoord.y, 0.0f, 1.0f);
 }
 

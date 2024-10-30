@@ -37,15 +37,7 @@ class Program
             ubo.proj.M22 *= -1;
 
             // start rendering
-            renderer.BeginFrame();
-
-            renderer.BeginGeometryRenderPass();
-            renderer.EndRenderPass();
-
-            renderer.BeginCompositionRenderPass();
-            renderer.EndRenderPass();
-
-            renderer.EndFrame();
+            renderer.DrawFrame();
         };
 
         window.Closing += () =>

@@ -15,7 +15,8 @@ unsafe public partial class VulkanRenderer
             string fragmentShaderPath,
             RenderPass renderPass,
             DescriptorSetLayout[] descriptorSetLayouts,
-            uint colorAttachmentCount)
+            uint colorAttachmentCount,
+            bool useVertexInfo = true)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(vertexShaderPath);
         byte[] fragmentShaderCode = File.ReadAllBytes(fragmentShaderPath);
@@ -119,18 +120,34 @@ unsafe public partial class VulkanRenderer
         {
             throw new Exception("Failed to create pipeline layout!");
         }
-
-        var bindingDescription = Vertex.GetBindingDescription();
-        var attributeDescriptions = Vertex.GetAttributeDescriptions();
-        PipelineVertexInputStateCreateInfo vertexInfo = new()
+        
+        PipelineVertexInputStateCreateInfo vertexInfo;
+        if (useVertexInfo)
         {
-            SType = StructureType.PipelineVertexInputStateCreateInfo,
-            VertexBindingDescriptionCount = 1,
-            PVertexBindingDescriptions = &bindingDescription,
-            VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length
-        };
-        fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
-            vertexInfo.PVertexAttributeDescriptions = attributeDescriptionsPtr;
+            var bindingDescription = Vertex.GetBindingDescription();
+            var attributeDescriptions = Vertex.GetAttributeDescriptions();
+            
+            vertexInfo = new()
+            {
+                SType = StructureType.PipelineVertexInputStateCreateInfo,
+                VertexBindingDescriptionCount = 1,
+                PVertexBindingDescriptions = &bindingDescription,
+                VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length
+            };
+            fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
+                vertexInfo.PVertexAttributeDescriptions = attributeDescriptionsPtr;
+        }
+        else
+        {
+            vertexInfo = new()
+            {
+                SType = StructureType.PipelineVertexInputStateCreateInfo,
+                VertexBindingDescriptionCount = 0,
+                PVertexAttributeDescriptions = default,
+                VertexAttributeDescriptionCount = 0,
+                PVertexBindingDescriptions = default
+            };
+        }
 
         GraphicsPipelineCreateInfo pipelineInfo = new()
         {
