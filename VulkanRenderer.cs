@@ -69,6 +69,9 @@ unsafe public partial class VulkanRenderer
         KhrSwapchain.ExtensionName
     };
 
+    VertexBuffer vbuf;
+    IndexBuffer ibuf;
+
     readonly Vk vk;
     readonly Device device; 
     readonly PhysicalDevice physicalDevice;
@@ -179,7 +182,7 @@ unsafe public partial class VulkanRenderer
         geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
                 geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 4);
         compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
-                compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1, false);
+                compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
 
         // old code
         // CreateRenderPass(out renderPass);
@@ -198,6 +201,19 @@ unsafe public partial class VulkanRenderer
         // CreateUBODescriptorSets(out uboDescriptorSets);
 
         CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
+
+        Vertex[] vertices = new[] 
+        {
+            new Vertex() { pos = new Vector3D<float>(-1.0f, -1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) }, // top left
+            new Vertex() { pos = new Vector3D<float>(1.0f, -1.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) }, // top right
+            new Vertex() { pos = new Vector3D<float>(-1.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) }, // bottom left
+            new Vertex() { pos = new Vector3D<float>(1.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) }, // bottom right
+        };
+
+        ushort[] indices = new ushort[] { 0, 2, 3, 0, 3, 1 };
+
+        vbuf = CreateVertexBuffer(vertices);
+        ibuf = CreateIndexBuffer(indices);
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -332,7 +348,10 @@ unsafe public partial class VulkanRenderer
 
         vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
                 compositionPipeline.Layout, 0, 1, in compositionDescriptorSets[currentFrame], 0, default);
-        vk.CmdDraw(compositionCommandBuffers[currentFrame], 3, 1, 0, 0);
+
+        Bind(vbuf, compositionCommandBuffers[currentFrame]);
+        Bind(ibuf, compositionCommandBuffers[currentFrame]);
+        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], ibuf.IndexCount, 1, 0, 0, 0);
 
         vk.CmdEndRenderPass(compositionCommandBuffers[currentFrame]);
         if (vk.EndCommandBuffer(compositionCommandBuffers[currentFrame]) != Result.Success)

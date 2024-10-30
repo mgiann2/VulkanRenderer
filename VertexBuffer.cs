@@ -90,7 +90,7 @@ unsafe public partial class VulkanRenderer
         return new VertexBuffer(vertexBuffer, vertexBufferMemory, (uint) vertices.Length);
     }
 
-    public void Bind(VertexBuffer vertexBuffer)
+    public void Bind(VertexBuffer vertexBuffer, CommandBuffer commandBuffer)
     {
         Buffer[] vertexBuffers = new[]{ vertexBuffer.Buffer };
         ulong[] offsets = new ulong[]{ 0 };
@@ -98,7 +98,7 @@ unsafe public partial class VulkanRenderer
         fixed (Buffer* vertexBufferPtr = vertexBuffers)
         fixed(ulong* offsetsPtr = offsets)
         {
-            vk.CmdBindVertexBuffers(commandBuffers[currentFrame], 0, 1, vertexBufferPtr, offsetsPtr);
+            vk.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBufferPtr, offsetsPtr);
         }
     }
 

@@ -46,9 +46,9 @@ unsafe public partial class VulkanRenderer
         return new IndexBuffer(indexBuffer, indexBufferMemory, (uint) indices.Length);
     }
 
-    public void Bind(IndexBuffer indexBuffer)
+    public void Bind(IndexBuffer indexBuffer, CommandBuffer commandBuffer)
     {
-        vk.CmdBindIndexBuffer(commandBuffers[currentFrame], indexBuffer.Buffer, 0, IndexType.Uint16);
+        vk.CmdBindIndexBuffer(commandBuffer, indexBuffer.Buffer, 0, IndexType.Uint16);
     }
 
     public void DestroyBuffer(IndexBuffer indexBuffer)
