@@ -116,6 +116,7 @@ unsafe public partial class VulkanRenderer
     uint currentFrame;
     bool framebufferResized = false;
     uint imageIndex;
+    bool isFrameEnded = true;
 
     bool disposedValue;
     
@@ -181,11 +182,10 @@ unsafe public partial class VulkanRenderer
         window.FramebufferResize += OnFramebufferResize;
     }
 
-    // TODO: split function implementation into multiple functions
-    public void DrawFrame()
+    public void BeginFrame()
     {
-        // Begin Frame
-        // -----------
+        if (!isFrameEnded) throw new Exception("Tried to begin frame before ending current frame!");
+
         vk.WaitForFences(device, 1, ref inFlightFences[currentFrame], true, ulong.MaxValue);
 
         imageIndex = 0;
@@ -202,12 +202,11 @@ unsafe public partial class VulkanRenderer
 
         vk.ResetFences(device, 1, ref inFlightFences[currentFrame]);
 
-        // Reset command buffers
         vk.ResetCommandBuffer(geometryCommandBuffers[currentFrame], CommandBufferResetFlags.None);
         vk.ResetCommandBuffer(compositionCommandBuffers[currentFrame], CommandBufferResetFlags.None);
         
-        // Geometry render pass
-        // --------------------
+        // Begin Geometry Render Pass
+        // --------------------------
         CommandBufferBeginInfo beginInfo = new()
         {
             SType = StructureType.CommandBufferBeginInfo,
@@ -264,23 +263,31 @@ unsafe public partial class VulkanRenderer
             Extent = swapchainInfo.Extent
         };
         vk.CmdSetScissor(geometryCommandBuffers[currentFrame], 0, 1, in scissor);
+    }
 
-        // Add draw calls
+    public void EndFrame()
+    {
+        if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new frame!");
 
+        // End geometry render pass
         vk.CmdEndRenderPass(geometryCommandBuffers[currentFrame]);
         if (vk.EndCommandBuffer(geometryCommandBuffers[currentFrame]) != Result.Success)
         {
             throw new Exception("Failed to end command buffer!");
         }
 
-        // Composition render pass
-        // -----------------------
+        // Begin composition render pass
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+        };
+
         if (vk.BeginCommandBuffer(compositionCommandBuffers[currentFrame], in beginInfo) != Result.Success)
         {
             throw new Exception("Failed to begin command buffer!");
         }
 
-        renderPassInfo = new()
+        RenderPassBeginInfo renderPassInfo = new()
         {
             SType = StructureType.RenderPassBeginInfo,
             RenderPass = compositionRenderPass,
@@ -292,7 +299,7 @@ unsafe public partial class VulkanRenderer
             }
         };
 
-        clearColors = new ClearValue[] 
+        var clearColors = new ClearValue[] 
         { 
             new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
             new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
@@ -306,7 +313,22 @@ unsafe public partial class VulkanRenderer
 
         vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
 
+        Viewport viewport = new()
+        {
+            X = 0.0f,
+            Y = 0.0f,
+            Width = swapchainInfo.Extent.Width,
+            Height = swapchainInfo.Extent.Height,
+            MinDepth = 0.0f,
+            MaxDepth = 1.0f,
+        };
         vk.CmdSetViewport(compositionCommandBuffers[currentFrame], 0, 1, in viewport);
+
+        Rect2D scissor = new()
+        {
+            Offset = { X = 0, Y = 0 },
+            Extent = swapchainInfo.Extent
+        };
         vk.CmdSetScissor(compositionCommandBuffers[currentFrame], 0, 1, in scissor);
 
         vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
@@ -322,8 +344,6 @@ unsafe public partial class VulkanRenderer
             throw new Exception("Failed to end command buffer!");
         }
 
-        // End Frame
-        // ---------
         // submit geometry commands
         var geomCommandBuffer = geometryCommandBuffers[currentFrame];
         var geomWaitSemaphores = stackalloc[] { imageAvailableSemaphores[currentFrame] };
@@ -377,7 +397,7 @@ unsafe public partial class VulkanRenderer
             PImageIndices = &idx
         };
 
-        result = swapchainInfo.KhrSwapchain.QueuePresent(presentQueue, in presentInfo);
+        var result = swapchainInfo.KhrSwapchain.QueuePresent(presentQueue, in presentInfo);
         if (result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || framebufferResized)
         {
             framebufferResized = false;

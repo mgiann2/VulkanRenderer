@@ -37,7 +37,8 @@ class Program
             ubo.proj.M22 *= -1;
 
             // start rendering
-            renderer.DrawFrame();
+            renderer.BeginFrame();
+            renderer.EndFrame();
         };
 
         window.Closing += () =>
