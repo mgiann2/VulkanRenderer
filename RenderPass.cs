@@ -46,6 +46,13 @@ unsafe public partial class VulkanRenderer
         };
     }
 
+    void DestroyFramebufferAttachment(FramebufferAttachment attachment)
+    {
+        vk.DestroyImage(device, attachment.Image, null);
+        vk.DestroyImageView(device, attachment.ImageView, null);
+        vk.FreeMemory(device, attachment.ImageMemory, null);
+    }
+
     void CreateGeometryRenderPass(out GBuffer gBuffer, out RenderPass renderPass, out Framebuffer framebuffer)
     {
         // create GBuffer attachments
@@ -174,6 +181,19 @@ unsafe public partial class VulkanRenderer
         }
     }
 
+    void DestroyGeomtryRenderPass(GBuffer gBuffer, RenderPass renderPass, Framebuffer framebuffer)
+    {
+        DestroyFramebufferAttachment(gBuffer.Albedo);
+        DestroyFramebufferAttachment(gBuffer.Normal);
+        DestroyFramebufferAttachment(gBuffer.Specular);
+        DestroyFramebufferAttachment(gBuffer.Position);
+        DestroyFramebufferAttachment(gBuffer.Depth);
+
+        vk.DestroyRenderPass(device, renderPass, null);
+
+        vk.DestroyFramebuffer(device, framebuffer, null);
+    }
+
     void CreateCompositionRenderPass(out FramebufferAttachment depthAttachment, out RenderPass renderPass, out Framebuffer[] framebuffers)
     {
         // create attachments
@@ -293,5 +313,15 @@ unsafe public partial class VulkanRenderer
                 throw new Exception("Failed to create framebuffer!");
             }
         }
+    }
+
+    void DestroyCompositionRenderPass(FramebufferAttachment depthAttachment, RenderPass renderPass, Framebuffer[] framebuffers)
+    {
+        DestroyFramebufferAttachment(depthAttachment);
+
+        vk.DestroyRenderPass(device, renderPass, null);
+
+        foreach (var framebuffer in framebuffers)
+            vk.DestroyFramebuffer(device, framebuffer, null);
     }
 }

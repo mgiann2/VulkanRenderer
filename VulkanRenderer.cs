@@ -136,10 +136,6 @@ unsafe public partial class VulkanRenderer
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out swapchainInfo);
 
-        // create render passes
-        CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
-        CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
-
         CreateUniformBuffers(out uniformBuffers, out uniformBuffersMemory);
         CreateTextureSampler(out textureSampler);
 
@@ -150,6 +146,10 @@ unsafe public partial class VulkanRenderer
         // Create descriptor set layouts
         gBufferDescriptorSetLayout = CreateGBufferDescriptorSetLayout();
         compositionDescriptorSetLayout = CreateCompositionDescriptorSetLayout();
+
+        // create render passes
+        CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
+        CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
 
         // Create composition pass descriptor set
         compositionDescriptorSets = CreateCompositionDescriptorSets();
@@ -267,7 +267,7 @@ unsafe public partial class VulkanRenderer
 
     public void EndFrame()
     {
-        if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new frame!");
+        if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new one!");
 
         // End geometry render pass
         vk.CmdEndRenderPass(geometryCommandBuffers[currentFrame]);
@@ -735,10 +735,13 @@ unsafe public partial class VulkanRenderer
 
     void CleanupSwapchain()
     {
-        foreach (var framebuffer in swapchainFramebuffers)
-        {
-            vk.DestroyFramebuffer(device, framebuffer, null);
-        }
+        vk.DestroyPipeline(device, compositionPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(device, compositionPipeline.Layout, null);
+        vk.DestroyPipeline(device, geometryPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(device, geometryPipeline.Layout, null);
+
+        DestroyCompositionRenderPass(depthAttachment, compositionRenderPass, swapchainFramebuffers);
+        DestroyGeomtryRenderPass(gBuffer, geometryRenderPass, geometryFramebuffer);
 
         foreach (var imageView in swapchainInfo.ImageViews)
         {
@@ -762,129 +765,16 @@ unsafe public partial class VulkanRenderer
         vk.DeviceWaitIdle(device);
 
         CreateSwapchain(out swapchainInfo);
-    }
 
-    void CreateRenderPass(out RenderPass renderPass)
-    {
-        AttachmentDescription colorAttachment = new()
-        {
-            Format = swapchainInfo.ImageFormat,
-            Samples = SampleCountFlags.Count1Bit,
-            LoadOp = AttachmentLoadOp.Clear,
-            StoreOp = AttachmentStoreOp.Store,
-            StencilLoadOp = AttachmentLoadOp.DontCare,
-            StencilStoreOp = AttachmentStoreOp.DontCare,
-            InitialLayout = ImageLayout.Undefined,
-            FinalLayout = ImageLayout.PresentSrcKhr
-        };
+        CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
+        CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
 
-        AttachmentReference colorAttachmentRef = new()
-        {
-            Attachment = 0,
-            Layout = ImageLayout.ColorAttachmentOptimal
-        };
+        UpdateCompositionDescriptorSets(compositionDescriptorSets, gBuffer);
 
-        AttachmentDescription depthAttachment = new()
-        {
-            Format = FindDepthFormat(),
-            Samples = SampleCountFlags.Count1Bit,
-            LoadOp = AttachmentLoadOp.Clear,
-            StoreOp = AttachmentStoreOp.DontCare,
-            StencilLoadOp = AttachmentLoadOp.DontCare,
-            StencilStoreOp = AttachmentStoreOp.DontCare,
-            InitialLayout = ImageLayout.Undefined,
-            FinalLayout = ImageLayout.DepthStencilAttachmentOptimal
-        };
-        
-        AttachmentReference depthAttachmentRef = new()
-        {
-            Attachment = 1,
-            Layout = ImageLayout.DepthStencilAttachmentOptimal
-        };
-
-        SubpassDescription subpass = new()
-        {
-            PipelineBindPoint = PipelineBindPoint.Graphics,
-            ColorAttachmentCount = 1,
-            PColorAttachments = &colorAttachmentRef,
-            PDepthStencilAttachment = &depthAttachmentRef
-        };
-
-        SubpassDependency dependency = new()
-        {
-            SrcSubpass = Vk.SubpassExternal,
-            DstSubpass = 0,
-            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.LateFragmentTestsBit,
-            SrcAccessMask = 0,
-            DstStageMask = PipelineStageFlags.ColorAttachmentOutputBit | PipelineStageFlags.EarlyFragmentTestsBit,
-            DstAccessMask = AccessFlags.ColorAttachmentWriteBit | AccessFlags.DepthStencilAttachmentWriteBit,
-        };
-
-        var attachments = new AttachmentDescription[] { colorAttachment, depthAttachment };
-
-        RenderPassCreateInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassCreateInfo,
-            SubpassCount = 1,
-            PSubpasses = &subpass,
-            DependencyCount = 1,
-            PDependencies = &dependency
-        };
-
-        renderPassInfo.AttachmentCount = (uint) attachments.Length;
-        fixed (AttachmentDescription* attachmentsPtr = attachments)
-            renderPassInfo.PAttachments = attachmentsPtr;
-
-        if (vk.CreateRenderPass(device, in renderPassInfo, null, out renderPass) != Result.Success)
-        {
-            throw new Exception("Failed to create render pass!");
-        }
-    }
-
-    void CreateDescriptorSetLayouts(out DescriptorSetLayout uboDescriptorSetLayout, out DescriptorSetLayout samplerDescriptorSetLayout) 
-    {
-        // uniform buffer descriptor set layout
-        DescriptorSetLayoutBinding uboLayoutBinding = new()
-        {
-            Binding = 0,
-            DescriptorType = DescriptorType.UniformBuffer,
-            DescriptorCount = 1,
-            StageFlags = ShaderStageFlags.VertexBit
-        };
-
-        DescriptorSetLayoutCreateInfo uboLayoutInfo = new()
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 1,
-            PBindings = &uboLayoutBinding 
-        };
-    
-        if (vk.CreateDescriptorSetLayout(device, in uboLayoutInfo, null, out uboDescriptorSetLayout) != Result.Success)
-        {
-            throw new Exception("Failed to create uniform buffer object descriptor set layout!");
-        }
-
-        // image sampler descriptor set layout
-        DescriptorSetLayoutBinding samplerLayoutBinding = new()
-        {
-            Binding = 0,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            PImmutableSamplers = default,
-            StageFlags = ShaderStageFlags.FragmentBit
-        };
-
-        DescriptorSetLayoutCreateInfo samplerLayoutInfo = new()
-        {
-            SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 1,
-            PBindings = &samplerLayoutBinding
-        };
-
-        if (vk.CreateDescriptorSetLayout(device, in samplerLayoutInfo, null, out samplerDescriptorSetLayout) != Result.Success)
-        {
-            throw new Exception("Failed to create sampler descriptor set layout!");
-        }
+        geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
+                geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 4);
+        compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
+                compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
     }
 
     ShaderModule CreateShaderModule(byte[] shaderCode)
@@ -922,48 +812,6 @@ unsafe public partial class VulkanRenderer
             CreateBuffer(bufferSize, BufferUsageFlags.UniformBufferBit,
                          MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
                          out uniformBuffers[i], out uniformBuffersMemory[i]);
-        }
-    }
-
-    void CreateDescriptorPools(out DescriptorPool uboDescriptorPool, out DescriptorPool samplerDescriptorPool)
-    {
-        DescriptorPoolSize uboPoolSize = new()
-        {
-            Type = DescriptorType.UniformBuffer,
-            DescriptorCount = (uint) MaxFramesInFlight
-        };
-
-        DescriptorPoolCreateInfo uboPoolInfo = new()
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            PoolSizeCount = 1,
-            PPoolSizes = &uboPoolSize,
-            MaxSets = (uint) MaxFramesInFlight
-        };
-
-        if (vk.CreateDescriptorPool(device, in uboPoolInfo, null, out uboDescriptorPool) != Result.Success)
-        {
-            throw new Exception("Failed to creat uniform buffer object descriptor pool!");
-        }
-
-        DescriptorPoolSize samplerPoolSize =  new()
-        {
-            Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = (uint) MaxFramesInFlight * 2,
-        };
-
-        DescriptorPoolCreateInfo samplerPoolInfo = new()
-        {
-            SType = StructureType.DescriptorPoolCreateInfo,
-            PoolSizeCount = 1,
-            PPoolSizes = &samplerPoolSize,
-            MaxSets = (uint) MaxFramesInFlight * 2,
-            Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
-        };
-
-        if (vk.CreateDescriptorPool(device, in samplerPoolInfo, null, out samplerDescriptorPool) != Result.Success)
-        {
-            throw new Exception("Failed to create sampler descriptor pool!");
         }
     }
 

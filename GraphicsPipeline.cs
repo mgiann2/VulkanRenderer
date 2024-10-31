@@ -564,4 +564,85 @@ unsafe public partial class VulkanRenderer
 
         return compositionDescriptorSets;
     }
+
+    void UpdateCompositionDescriptorSets(DescriptorSet[] compositionDescriptorSets, GBuffer gBuffer)
+    {
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            DescriptorImageInfo albedoInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = gBuffer.Albedo.ImageView,
+                Sampler = textureSampler
+            };
+
+            DescriptorImageInfo normalInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = gBuffer.Normal.ImageView,
+                Sampler = textureSampler
+            };
+
+            DescriptorImageInfo specularInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = gBuffer.Specular.ImageView,
+                Sampler = textureSampler
+            };
+
+            DescriptorImageInfo positionInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = gBuffer.Position.ImageView,
+                Sampler = textureSampler
+            };
+
+            var descriptorWrites = new WriteDescriptorSet[]
+            {
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = compositionDescriptorSets[i],
+                    DstBinding = 0,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &albedoInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = compositionDescriptorSets[i],
+                    DstBinding = 1,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &normalInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = compositionDescriptorSets[i],
+                    DstBinding = 2,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &specularInfo
+                },
+                new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = compositionDescriptorSets[i],
+                    DstBinding = 3,
+                    DstArrayElement = 0,
+                    DescriptorType = DescriptorType.CombinedImageSampler,
+                    DescriptorCount = 1,
+                    PImageInfo = &positionInfo
+                }
+            };
+
+            fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
+                vk.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
+        }
+    }
 }
