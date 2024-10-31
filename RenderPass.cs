@@ -17,13 +17,6 @@ struct GBuffer
     public FramebufferAttachment Depth { get; init; }
 }
 
-struct GRenderPass
-{
-    public GBuffer GBuffer;
-    public RenderPass RenderPass;
-    public Framebuffer Framebuffer;
-}
-
 unsafe public partial class VulkanRenderer
 {
     FramebufferAttachment CreateFramebufferAttachment(Format format, ImageUsageFlags usage)

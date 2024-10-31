@@ -48,13 +48,6 @@ public struct UniformBufferObject
 
 unsafe public partial class VulkanRenderer
 {
-    enum RendererState
-    {
-        Idle,
-        DrawingFrame,
-        UsingRenderPass
-    }
-
     readonly bool EnableValidationLayers;
     const int MaxFramesInFlight = 2;
     const uint MaxGBufferDescriptorSets = 20;
@@ -69,8 +62,8 @@ unsafe public partial class VulkanRenderer
         KhrSwapchain.ExtensionName
     };
 
-    VertexBuffer vbuf;
-    IndexBuffer ibuf;
+    VertexBuffer screenQuadVertexBuffer;
+    IndexBuffer screenQuadIndexBuffer;
 
     readonly Vk vk;
     readonly Device device; 
@@ -89,21 +82,15 @@ unsafe public partial class VulkanRenderer
     SwapchainInfo swapchainInfo;
     Framebuffer[] swapchainFramebuffers;
 
-    RenderPass renderPass;
-
-    FramebufferAttachment depthAttachment;
-    RenderPass compositionRenderPass;
-    Framebuffer compositionFramebuffer;
-
     GBuffer gBuffer;
     RenderPass geometryRenderPass;
     Framebuffer geometryFramebuffer;
 
-    PipelineLayout pipelineLayout;
-    Pipeline graphicsPipeline;
+    FramebufferAttachment depthAttachment;
+    RenderPass compositionRenderPass;
 
     Buffer[] uniformBuffers;
-    DeviceMemory[] uniformBufferMemory;
+    DeviceMemory[] uniformBuffersMemory;
 
     DescriptorSetLayout gBufferDescriptorSetLayout;
     DescriptorPool gBufferDescriptorPool;
@@ -115,23 +102,11 @@ unsafe public partial class VulkanRenderer
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
 
-    DescriptorSetLayout uboDescriptorSetLayout;
-    DescriptorPool uboDescriptorPool;
-    DescriptorSet[] uboDescriptorSets;
-
-    DescriptorSetLayout samplerDescriptorSetLayout;
-    DescriptorPool samplerDescriptorPool;
-
     CommandPool commandPool;
-    CommandBuffer[] commandBuffers;
     CommandBuffer[] geometryCommandBuffers;
     CommandBuffer[] compositionCommandBuffers;
 
     Sampler textureSampler;
-
-    Image depthImage; // TODO: remove
-    ImageView depthImageView; // TODO: remove
-    DeviceMemory depthImageMemory; // TODO: remove
 
     Semaphore[] imageAvailableSemaphores;
     Semaphore[] renderFinishedSemaphores;
@@ -141,7 +116,6 @@ unsafe public partial class VulkanRenderer
     uint currentFrame;
     bool framebufferResized = false;
     uint imageIndex;
-    RendererState rendererState = RendererState.Idle;
 
     bool disposedValue;
     
@@ -165,6 +139,7 @@ unsafe public partial class VulkanRenderer
         CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
         CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
 
+        CreateUniformBuffers(out uniformBuffers, out uniformBuffersMemory);
         CreateTextureSampler(out textureSampler);
 
         // Create descriptor pools
@@ -184,21 +159,9 @@ unsafe public partial class VulkanRenderer
         compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
                 compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
 
-        // old code
-        // CreateRenderPass(out renderPass);
-        // CreateDescriptorSetLayouts(out uboDescriptorSetLayout, out samplerDescriptorSetLayout);
-        // CreateGraphicsPipeline(out graphicsPipeline, out pipelineLayout, "shaders/tmp_vert.spv", "shaders/tmp_frag.spv");
-        // CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
-        // CreateFramebuffers(out swapchainFramebuffers);
-
         // create commnad pool and buffers
         CreateCommandPool(out commandPool);
         CreateCommandBuffers(out geometryCommandBuffers, out compositionCommandBuffers);
-
-        // old code
-        // CreateUniformBuffers(out uniformBuffers, out uniformBufferMemory);
-        // CreateDescriptorPools(out uboDescriptorPool, out samplerDescriptorPool);
-        // CreateUBODescriptorSets(out uboDescriptorSets);
 
         CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
@@ -212,8 +175,8 @@ unsafe public partial class VulkanRenderer
 
         ushort[] indices = new ushort[] { 0, 2, 3, 0, 3, 1 };
 
-        vbuf = CreateVertexBuffer(vertices);
-        ibuf = CreateIndexBuffer(indices);
+        screenQuadVertexBuffer = CreateVertexBuffer(vertices);
+        screenQuadIndexBuffer = CreateIndexBuffer(indices);
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -349,9 +312,9 @@ unsafe public partial class VulkanRenderer
         vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
                 compositionPipeline.Layout, 0, 1, in compositionDescriptorSets[currentFrame], 0, default);
 
-        Bind(vbuf, compositionCommandBuffers[currentFrame]);
-        Bind(ibuf, compositionCommandBuffers[currentFrame]);
-        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], ibuf.IndexCount, 1, 0, 0, 0);
+        Bind(screenQuadVertexBuffer, compositionCommandBuffers[currentFrame]);
+        Bind(screenQuadIndexBuffer, compositionCommandBuffers[currentFrame]);
+        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], screenQuadIndexBuffer.IndexCount, 1, 0, 0, 0);
 
         vk.CmdEndRenderPass(compositionCommandBuffers[currentFrame]);
         if (vk.EndCommandBuffer(compositionCommandBuffers[currentFrame]) != Result.Success)
@@ -428,304 +391,17 @@ unsafe public partial class VulkanRenderer
         currentFrame = (currentFrame + 1) % MaxFramesInFlight;
     }
 
-    /// <summary>
-    /// Initializes renderer to start drawing new frame
-    /// </summary>
-    public void BeginFrame()
-    {
-        if (rendererState != RendererState.Idle) throw new Exception("BeginFrame called before current frame has been ended!");
-
-        vk.WaitForFences(device, 1, ref inFlightFences[currentFrame], true, ulong.MaxValue);
-
-        imageIndex = 0;
-        var result = swapchainInfo.KhrSwapchain.AcquireNextImage(device, swapchainInfo.Swapchain, ulong.MaxValue, imageAvailableSemaphores[currentFrame], default, ref imageIndex);
-        if (result == Result.ErrorOutOfDateKhr)
-        {
-            RecreateSwapchain();
-            return;
-        }
-        else if (result != Result.Success && result != Result.SuboptimalKhr)
-        {
-            throw new Exception("Failed to acquire next image!");
-        }
-
-        vk.ResetFences(device, 1, ref inFlightFences[currentFrame]);
-
-        // Begin command buffer
-        vk.ResetCommandBuffer(commandBuffers[currentFrame], CommandBufferResetFlags.None);
-        CommandBufferBeginInfo beginInfo = new()
-        {
-            SType = StructureType.CommandBufferBeginInfo,
-        };
-
-        if (vk.BeginCommandBuffer(commandBuffers[currentFrame], in beginInfo) != Result.Success)
-        {
-            throw new Exception("Failed to begin command buffer!");
-        }
-
-        rendererState = RendererState.DrawingFrame;
-    }
-
-    /// <summary>
-    /// Submits a new frame to be drawn
-    /// </summary>
-    public void EndFrame()
-    {
-        if (rendererState != RendererState.DrawingFrame) throw new Exception("EndFrame called either frame has been started or render pass commands have been submitted!");
-
-        var commandBuffer = commandBuffers[currentFrame];
-        if (vk.EndCommandBuffer(commandBuffer) != Result.Success)
-        {
-            throw new Exception("Failed to end command buffer!");
-        }
-
-        var waitSemaphores = stackalloc[] { imageAvailableSemaphores[currentFrame] };
-        var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
-        var signalSemaphores = stackalloc[] { renderFinishedSemaphores[currentFrame] };
-
-        SubmitInfo submitInfo = new()
-        {
-            SType = StructureType.SubmitInfo,
-            WaitSemaphoreCount = 1,
-            PWaitSemaphores = waitSemaphores,
-            PWaitDstStageMask = waitStages,
-            CommandBufferCount = 1,
-            PCommandBuffers = &commandBuffer,
-            SignalSemaphoreCount = 1,
-            PSignalSemaphores = signalSemaphores
-        };
-
-        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
-        {
-            throw new Exception("Failed to submit draw command buffer!");
-        }
-
-        var swapchains = stackalloc[] { swapchainInfo.Swapchain };
-
-        uint idx = imageIndex;
-        PresentInfoKHR presentInfo = new()
-        {
-            SType = StructureType.PresentInfoKhr,
-            WaitSemaphoreCount = 1,
-            PWaitSemaphores = signalSemaphores,
-            SwapchainCount = 1,
-            PSwapchains = swapchains,
-            PImageIndices = &idx
-        };
-
-        var result = swapchainInfo.KhrSwapchain.QueuePresent(presentQueue, in presentInfo);
-        if (result == Result.ErrorOutOfDateKhr || result == Result.SuboptimalKhr || framebufferResized)
-        {
-            framebufferResized = false;
-            RecreateSwapchain();
-        }
-        else if (result != Result.Success)
-        {
-            throw new Exception("Failed to present swapchain image!");
-        }
-
-        currentFrame = (currentFrame + 1) % MaxFramesInFlight;
-        rendererState = RendererState.Idle;
-    }
-
-    public void BeginRenderPass()
-    {
-        if (rendererState != RendererState.DrawingFrame) throw new Exception("Renderer either has not started a frame or has already started a render pass!");
-
-        RenderPassBeginInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = renderPass,
-            Framebuffer = swapchainFramebuffers[imageIndex],
-            RenderArea = new()
-            {
-                Extent = swapchainInfo.Extent,
-                Offset = { X = 0, Y = 0 }
-            }
-        };
-
-        ClearValue[] clearColors = new ClearValue[] 
-        { 
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
-        };
-
-        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
-        fixed (ClearValue* clearColorsPtr = clearColors)
-            renderPassInfo.PClearValues = clearColorsPtr;
-
-        vk.CmdBeginRenderPass(commandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
-
-        vk.CmdBindPipeline(commandBuffers[currentFrame], PipelineBindPoint.Graphics, graphicsPipeline);
-
-        Viewport viewport = new()
-        {
-            X = 0.0f,
-            Y = 0.0f,
-            Width = swapchainInfo.Extent.Width,
-            Height = swapchainInfo.Extent.Height,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f,
-        };
-        vk.CmdSetViewport(commandBuffers[currentFrame], 0, 1, in viewport);
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = swapchainInfo.Extent
-        };
-        vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
-
-        // TODO: Determine if there is better location for binding descriptor sets
-        vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
-                                 pipelineLayout, 0, 1, in uboDescriptorSets[currentFrame], 0, default);
-
-        rendererState = RendererState.UsingRenderPass;
-    }
-
-    public void BeginGeometryRenderPass()
-    {
-        if (rendererState != RendererState.DrawingFrame) throw new Exception("Renderer either has not started a frame or has already started a render pass!");
-
-        RenderPassBeginInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = geometryRenderPass,
-            Framebuffer = geometryFramebuffer,
-            RenderArea = new()
-            {
-                Extent = swapchainInfo.Extent,
-                Offset = { X = 0, Y = 0 }
-            }
-        };
-
-        ClearValue[] clearColors = new ClearValue[] 
-        { 
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
-        };
-
-        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
-        fixed (ClearValue* clearColorsPtr = clearColors)
-            renderPassInfo.PClearValues = clearColorsPtr;
-
-        vk.CmdBeginRenderPass(commandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
-
-        vk.CmdBindPipeline(commandBuffers[currentFrame], PipelineBindPoint.Graphics, geometryPipeline.Pipeline);
-
-        Viewport viewport = new()
-        {
-            X = 0.0f,
-            Y = 0.0f,
-            Width = swapchainInfo.Extent.Width,
-            Height = swapchainInfo.Extent.Height,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f,
-        };
-        vk.CmdSetViewport(commandBuffers[currentFrame], 0, 1, in viewport);
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = swapchainInfo.Extent
-        };
-        vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
-
-        // TODO: Determine if there is better location for binding descriptor sets
-        // vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
-        //                          pipelineLayout, 0, 1, in uboDescriptorSets[currentFrame], 0, default);
-
-        rendererState = RendererState.UsingRenderPass;
-    }
-
-    public void BeginCompositionRenderPass()
-    {
-        if (rendererState != RendererState.DrawingFrame) throw new Exception("Renderer either has not started a frame or has already started a render pass!");
-
-        RenderPassBeginInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = compositionRenderPass,
-            Framebuffer = swapchainFramebuffers[imageIndex],
-            RenderArea = new()
-            {
-                Extent = swapchainInfo.Extent,
-                Offset = { X = 0, Y = 0 }
-            }
-        };
-
-        ClearValue[] clearColors = new ClearValue[] 
-        { 
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
-        };
-
-        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
-        fixed (ClearValue* clearColorsPtr = clearColors)
-            renderPassInfo.PClearValues = clearColorsPtr;
-
-        vk.CmdBeginRenderPass(commandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
-
-        vk.CmdBindPipeline(commandBuffers[currentFrame], PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
-
-        Viewport viewport = new()
-        {
-            X = 0.0f,
-            Y = 0.0f,
-            Width = swapchainInfo.Extent.Width,
-            Height = swapchainInfo.Extent.Height,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f,
-        };
-        vk.CmdSetViewport(commandBuffers[currentFrame], 0, 1, in viewport);
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = swapchainInfo.Extent
-        };
-        vk.CmdSetScissor(commandBuffers[currentFrame], 0, 1, in scissor);
-
-        // TODO: Determine if there is better location for binding descriptor sets
-        // vk.CmdBindDescriptorSets(commandBuffers[currentFrame], PipelineBindPoint.Graphics,
-        //                          pipelineLayout, 0, 1, in uboDescriptorSets[currentFrame], 0, default);
-
-        rendererState = RendererState.UsingRenderPass;
-    }
-
-    public void EndRenderPass()
-    {
-        if (rendererState != RendererState.UsingRenderPass) throw new Exception("Tried to end render pass before beginning a frame or render pass!");
-
-        vk.CmdEndRenderPass(commandBuffers[currentFrame]);
-
-        rendererState = RendererState.DrawingFrame;
-    }
-
     public void DeviceWaitIdle()
     {
         vk.DeviceWaitIdle(device);
     }
 
-    public void Draw(uint vertexCount)
-    {
-        vk.CmdDraw(commandBuffers[currentFrame], vertexCount, 1, 0, 0);
-    }
-
-    public void DrawIndexed(uint indexCount)
-    {
-        vk.CmdDrawIndexed(commandBuffers[currentFrame], indexCount, 1, 0, 0, 0);
-    }
-
     public void UpdateUniformBuffer(UniformBufferObject ubo)
     {
         void* data;
-        vk.MapMemory(device, uniformBufferMemory[currentFrame], 0, (ulong)Unsafe.SizeOf<UniformBufferObject>(), 0, &data);
+        vk.MapMemory(device, uniformBuffersMemory[currentFrame], 0, (ulong)Unsafe.SizeOf<UniformBufferObject>(), 0, &data);
         new Span<UniformBufferObject>(data, 1)[0] = ubo;
-        vk.UnmapMemory(device, uniformBufferMemory[currentFrame]);
+        vk.UnmapMemory(device, uniformBuffersMemory[currentFrame]);
     }
 
     void CreateBuffer(ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, out Buffer newBuffer, out DeviceMemory newBufferMemory)
@@ -1039,10 +715,6 @@ unsafe public partial class VulkanRenderer
 
     void CleanupSwapchain()
     {
-        vk.DestroyImageView(device, depthImageView, null);
-        vk.FreeMemory(device, depthImageMemory, null);
-        vk.DestroyImage(device, depthImage, null);
-
         foreach (var framebuffer in swapchainFramebuffers)
         {
             vk.DestroyFramebuffer(device, framebuffer, null);
@@ -1070,8 +742,6 @@ unsafe public partial class VulkanRenderer
         vk.DeviceWaitIdle(device);
 
         CreateSwapchain(out swapchainInfo);
-        CreateDepthResources(out depthImage, out depthImageMemory, out depthImageView);
-        CreateFramebuffers(out swapchainFramebuffers);
     }
 
     void CreateRenderPass(out RenderPass renderPass)
@@ -1197,151 +867,6 @@ unsafe public partial class VulkanRenderer
         }
     }
 
-    void CreateGraphicsPipeline(out Pipeline graphicsPipeline, out PipelineLayout layout, string vertexShaderPath, string fragmentShaderPath)
-    {
-        byte[] vertexShaderCode = File.ReadAllBytes(vertexShaderPath);
-        byte[] fragmentShaderCode = File.ReadAllBytes(fragmentShaderPath);
-
-        var vertexShaderModule = CreateShaderModule(vertexShaderCode);
-        var fragmentShaderModule = CreateShaderModule(fragmentShaderCode);
-
-        PipelineShaderStageCreateInfo vertexShaderStageInfo = new()
-        {
-            SType = StructureType.PipelineShaderStageCreateInfo,
-            Stage = ShaderStageFlags.VertexBit,
-            Module = vertexShaderModule,
-            PName = (byte*) SilkMarshal.StringToPtr("main")
-        };
-
-        PipelineShaderStageCreateInfo fragmentShaderStageInfo = new()
-        {
-            SType = StructureType.PipelineShaderStageCreateInfo,
-            Stage = ShaderStageFlags.FragmentBit,
-            Module = fragmentShaderModule,
-            PName = (byte*) SilkMarshal.StringToPtr("main")
-        };
-
-        var shaderStagesInfo = stackalloc[] { vertexShaderStageInfo, fragmentShaderStageInfo };
-
-        var dynamicStates = stackalloc[] { DynamicState.Viewport, DynamicState.Scissor };
-        PipelineDynamicStateCreateInfo dynamicStateInfo = new()
-        {
-            SType = StructureType.PipelineDynamicStateCreateInfo,
-            DynamicStateCount = 2,
-            PDynamicStates = dynamicStates
-        };
-
-        PipelineInputAssemblyStateCreateInfo assemblyInfo = new()
-        {
-            SType = StructureType.PipelineInputAssemblyStateCreateInfo,
-            Topology = PrimitiveTopology.TriangleList,
-            PrimitiveRestartEnable = false,
-        };
-
-        PipelineViewportStateCreateInfo viewportInfo = new()
-        {
-            SType = StructureType.PipelineViewportStateCreateInfo,
-            ViewportCount = 1,
-            ScissorCount = 1
-        };
-
-        PipelineRasterizationStateCreateInfo rasterizerInfo = new()
-        {
-            SType = StructureType.PipelineRasterizationStateCreateInfo,
-            PolygonMode = PolygonMode.Fill,
-            LineWidth = 1.0f,
-            CullMode = CullModeFlags.BackBit,
-            FrontFace = FrontFace.CounterClockwise
-        };
-
-        PipelineMultisampleStateCreateInfo multisampleInfo = new()
-        {
-            SType = StructureType.PipelineMultisampleStateCreateInfo,
-            SampleShadingEnable = false,
-            RasterizationSamples = SampleCountFlags.Count1Bit
-        };
-
-        PipelineColorBlendAttachmentState colorBlendAttachment = new()
-        {
-            ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit | ColorComponentFlags.ABit,
-            BlendEnable = false
-        };
-
-        PipelineColorBlendStateCreateInfo colorBlendInfo = new()
-        {
-            SType = StructureType.PipelineColorBlendStateCreateInfo,
-            LogicOpEnable = false,
-            AttachmentCount = 1,
-            PAttachments = &colorBlendAttachment
-        };
-
-        PipelineDepthStencilStateCreateInfo depthStencil = new()
-        {
-            SType = StructureType.PipelineDepthStencilStateCreateInfo,
-            DepthTestEnable = true,
-            DepthWriteEnable = true,
-            DepthCompareOp = CompareOp.Less,
-            DepthBoundsTestEnable = false
-        };
-
-        DescriptorSetLayout[] descriptorSetLayouts = new[] { uboDescriptorSetLayout, samplerDescriptorSetLayout };
-
-        fixed (DescriptorSetLayout* descriptorSetLayoutsPtr = descriptorSetLayouts)
-        {
-            PipelineLayoutCreateInfo pipelineLayoutInfo = new()
-            {
-                SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = (uint) descriptorSetLayouts.Length,
-                PSetLayouts = descriptorSetLayoutsPtr
-            };
-
-            if (vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out layout) != Result.Success)
-            {
-                throw new Exception("Failed to create pipeline layout!");
-            }
-        }
-
-        var bindingDescription = Vertex.GetBindingDescription();
-        var attributeDescriptions = Vertex.GetAttributeDescriptions();
-        fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
-        {
-            PipelineVertexInputStateCreateInfo vertexInfo = new()
-            {
-                SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 1,
-                PVertexBindingDescriptions = &bindingDescription,
-                VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length,
-                PVertexAttributeDescriptions = attributeDescriptionsPtr
-            };
-
-            GraphicsPipelineCreateInfo pipelineInfo = new()
-            {
-                SType = StructureType.GraphicsPipelineCreateInfo,
-                StageCount = 2,
-                PStages = shaderStagesInfo,
-                PInputAssemblyState = &assemblyInfo,
-                PVertexInputState = &vertexInfo,
-                PViewportState = &viewportInfo,
-                PRasterizationState = &rasterizerInfo,
-                PMultisampleState = &multisampleInfo,
-                PColorBlendState = &colorBlendInfo,
-                PDynamicState = &dynamicStateInfo,
-                PDepthStencilState = &depthStencil,
-                Layout = layout,
-                RenderPass = renderPass,
-                Subpass = 0
-            };
-
-            if (vk.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out graphicsPipeline) != Result.Success)
-            {
-                throw new Exception("Failed to create graphics pipeline!");
-            }
-        }
-
-        vk.DestroyShaderModule(device, vertexShaderModule, null);
-        vk.DestroyShaderModule(device, fragmentShaderModule, null);
-    }
-
     ShaderModule CreateShaderModule(byte[] shaderCode)
     {
         ShaderModuleCreateInfo createInfo = new()
@@ -1422,83 +947,6 @@ unsafe public partial class VulkanRenderer
         }
     }
 
-    void CreateUBODescriptorSets(out DescriptorSet[] uboDescriptorSets)
-    {
-        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
-        Array.Fill(layouts, uboDescriptorSetLayout);
-
-        fixed (DescriptorSetLayout* layoutsPtr = layouts)
-        {
-            DescriptorSetAllocateInfo allocInfo = new()
-            {
-                SType = StructureType.DescriptorSetAllocateInfo,
-                DescriptorPool = uboDescriptorPool,
-                DescriptorSetCount = (uint) MaxFramesInFlight,
-                PSetLayouts = layoutsPtr
-            };
-
-            uboDescriptorSets = new DescriptorSet[MaxFramesInFlight];
-            fixed (DescriptorSet* descriptorSetsPtr = uboDescriptorSets)
-            {
-                if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
-                {
-                    throw new Exception("Failed to allocate uniform buffer object descriptor sets!");
-                }
-            }
-        }
-
-        for (int i = 0; i < MaxFramesInFlight; i++)
-        {
-            DescriptorBufferInfo bufferInfo = new()
-            {
-                Buffer = uniformBuffers[i],
-                Offset = 0,
-                Range = (ulong) Unsafe.SizeOf<UniformBufferObject>()
-            };
-
-            WriteDescriptorSet descriptorWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = uboDescriptorSets[i],
-                DstBinding = 0,
-                DstArrayElement = 0,
-                DescriptorType = DescriptorType.UniformBuffer,
-                DescriptorCount = 1,
-                PBufferInfo = &bufferInfo
-            };
-
-            vk.UpdateDescriptorSets(device, 1, &descriptorWrite, 0, default);
-        }
-    }
-
-    void CreateFramebuffers(out Framebuffer[] framebuffers)
-    {
-        framebuffers = new Framebuffer[swapchainInfo.ImageViews.Length];
-
-        for (int i = 0; i < swapchainInfo.ImageViews.Length; i++)
-        {
-            var attachments = new ImageView[] { swapchainInfo.ImageViews[i], depthImageView };
-
-            FramebufferCreateInfo framebufferInfo = new()
-            {
-                SType = StructureType.FramebufferCreateInfo,
-                RenderPass = renderPass,
-                Width = swapchainInfo.Extent.Width,
-                Height = swapchainInfo.Extent.Height,
-                Layers = 1
-            };
-
-            framebufferInfo.AttachmentCount = (uint) attachments.Length;
-            fixed (ImageView* attachmentsPtr = attachments)
-                framebufferInfo.PAttachments = attachmentsPtr;
-
-            if (vk.CreateFramebuffer(device, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
-            {
-                throw new Exception("Failed to create framebuffer!");
-            }
-        }
-    }
-
     void CreateCommandPool(out CommandPool commandPool)
     {
         var queueFamilyIndices = FindQueueFamilies(physicalDevice);
@@ -1514,20 +962,6 @@ unsafe public partial class VulkanRenderer
         {
             throw new Exception("Failed to create command pool!");
         }
-    }
-
-    void CreateDepthResources(out Image depthImage, out DeviceMemory depthImageMemory, out ImageView depthImageView)
-    {
-        var depthFormat = FindDepthFormat();
-        CreateImage(swapchainInfo.Extent.Width, swapchainInfo.Extent.Height, depthFormat,
-                    ImageTiling.Optimal, ImageUsageFlags.DepthStencilAttachmentBit,
-                    MemoryPropertyFlags.DeviceLocalBit, out depthImage, out depthImageMemory);
-        depthImageView = CreateImageView(depthImage, depthFormat, ImageAspectFlags.DepthBit);
-    }
-
-    bool HasStencilComponent(Format format)
-    {
-        return format == Format.D32SfloatS8Uint || format == Format.D24UnormS8Uint;
     }
 
     Format FindDepthFormat()
@@ -2059,17 +1493,11 @@ unsafe public partial class VulkanRenderer : IDisposable
 
             CleanupSwapchain();
 
-            vk.DestroyPipelineLayout(device, pipelineLayout, null);
-
             for (int i = 0; i < MaxFramesInFlight; i++)
             {
                 vk.DestroyBuffer(device, uniformBuffers[i], null);
-                vk.FreeMemory(device, uniformBufferMemory[i], null);
+                vk.FreeMemory(device, uniformBuffersMemory[i], null);
             }
-            vk.DestroyDescriptorPool(device, uboDescriptorPool, null);
-            vk.DestroyDescriptorSetLayout(device, uboDescriptorSetLayout, null);
-
-            vk.DestroyRenderPass(device, renderPass, null);
 
             vk.DestroyDevice(device, null);
             vk.DestroyInstance(instance, null);
