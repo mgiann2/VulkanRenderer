@@ -304,7 +304,7 @@ unsafe public partial class VulkanRenderer
             new DescriptorPoolSize
             {
                 Type = DescriptorType.CombinedImageSampler,
-                DescriptorCount = (uint) MaxFramesInFlight * 4 * maxSets
+                DescriptorCount = (uint) MaxFramesInFlight * 3 * maxSets
             }
         };
 
@@ -313,7 +313,8 @@ unsafe public partial class VulkanRenderer
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 2,
             PPoolSizes = poolSizes,
-            MaxSets = (uint) MaxFramesInFlight * maxSets
+            MaxSets = (uint) MaxFramesInFlight * maxSets,
+            Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
         if (vk.CreateDescriptorPool(device, in poolInfo, null, out var descriptorPool) != Result.Success)
@@ -422,7 +423,7 @@ unsafe public partial class VulkanRenderer
                 new()
                 {
                     SType = StructureType.WriteDescriptorSet,
-                    DstSet = compositionDescriptorSets[i],
+                    DstSet = gBufferDescriptorSets[i],
                     DstBinding = 1,
                     DstArrayElement = 0,
                     DescriptorType = DescriptorType.CombinedImageSampler,
@@ -432,7 +433,7 @@ unsafe public partial class VulkanRenderer
                 new()
                 {
                     SType = StructureType.WriteDescriptorSet,
-                    DstSet = compositionDescriptorSets[i],
+                    DstSet = gBufferDescriptorSets[i],
                     DstBinding = 2,
                     DstArrayElement = 0,
                     DescriptorType = DescriptorType.CombinedImageSampler,
