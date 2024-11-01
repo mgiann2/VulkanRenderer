@@ -8,6 +8,8 @@ public struct Vertex
 {
     public Vector3D<float> pos;
     public Vector2D<float> texCoord;
+    public Vector3D<float> normal;
+    public Vector3D<float> tangent;
 
     public static VertexInputBindingDescription GetBindingDescription()
     {
@@ -39,6 +41,22 @@ public struct Vertex
                 Location = 1,
                 Format = Format.R32G32Sfloat,
                 Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(texCoord))
+            },
+
+            new VertexInputAttributeDescription()
+            {
+                Binding = 0,
+                Location = 2,
+                Format = Format.R32G32B32Sfloat,
+                Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(normal))
+            },
+
+            new VertexInputAttributeDescription()
+            {
+                Binding = 0,
+                Location = 3,
+                Format = Format.R32G32B32Sfloat,
+                Offset = (uint) Marshal.OffsetOf<Vertex>(nameof(tangent))
             }
         };
 

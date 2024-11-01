@@ -16,8 +16,9 @@ unsafe public partial class VulkanRenderer
                            string metalnessPath)
     {
         // load model
+        uint postProcessSteps = (uint) (PostProcessSteps.FlipUVs | PostProcessSteps.Triangulate | PostProcessSteps.CalculateTangentSpace);
         using var assimp = Assimp.GetApi();
-        Scene* scene = assimp.ImportFile(modelPath, (uint)PostProcessPreset.TargetRealTimeMaximumQuality);
+        Scene* scene = assimp.ImportFile(modelPath, postProcessSteps);
 
         var vertexMap = new Dictionary<Vertex, uint>();
         var vertices = new List<Vertex>();
@@ -56,12 +57,16 @@ unsafe public partial class VulkanRenderer
                         uint index = face.MIndices[i];
 
                         var position = mesh->MVertices[index];
-                        var texture = mesh->MTextureCoords[0][(int)index];
+                        var texCoord = mesh->MTextureCoords[0][(int)index];
+                        var normal = mesh->MNormals[index];
+                        var tangent = mesh->MTangents[index];
 
                         Vertex vertex = new()
                         {
                             pos = new Vector3D<float>(position.X, position.Y, position.Z),
-                            texCoord = new Vector2D<float>(texture.X, 1.0f - texture.Y)
+                            texCoord = new Vector2D<float>(texCoord.X, texCoord.Y),
+                            normal = new Vector3D<float>(normal.X, normal.Y, normal.Z),
+                            tangent = new Vector3D<float>(tangent.X, tangent.Y, tangent.Z)
                         };
 
                         if (vertexMap.TryGetValue(vertex, out var meshIndex))
