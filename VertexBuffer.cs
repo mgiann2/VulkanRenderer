@@ -114,7 +114,7 @@ unsafe public partial class VulkanRenderer
         ulong[] offsets = new ulong[]{ 0 };
 
         fixed (Buffer* vertexBufferPtr = vertexBuffers)
-        fixed(ulong* offsetsPtr = offsets)
+        fixed (ulong* offsetsPtr = offsets)
         {
             vk.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBufferPtr, offsetsPtr);
         }
