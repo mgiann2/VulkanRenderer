@@ -101,6 +101,7 @@ unsafe public partial class VulkanRenderer
 
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
+    GraphicsPipeline lightingPipeline;
 
     CommandPool commandPool;
     CommandBuffer[] geometryCommandBuffers;
@@ -159,6 +160,8 @@ unsafe public partial class VulkanRenderer
                 geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 4);
         compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
                 compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
+        // lightingPipeline = CreateLightingPipeline("shaders/light.vert.spv", "shaders/light.frag.spv",
+        //         compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
 
         // create commnad pool and buffers
         CreateCommandPool(out commandPool);

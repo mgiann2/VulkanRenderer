@@ -15,8 +15,7 @@ unsafe public partial class VulkanRenderer
             string fragmentShaderPath,
             RenderPass renderPass,
             DescriptorSetLayout[] descriptorSetLayouts,
-            uint colorAttachmentCount,
-            bool useVertexInfo = true)
+            uint colorAttachmentCount)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(vertexShaderPath);
         byte[] fragmentShaderCode = File.ReadAllBytes(fragmentShaderPath);
@@ -121,33 +120,17 @@ unsafe public partial class VulkanRenderer
             throw new Exception("Failed to create pipeline layout!");
         }
         
-        PipelineVertexInputStateCreateInfo vertexInfo;
-        if (useVertexInfo)
+        var bindingDescription = Vertex.GetBindingDescription();
+        var attributeDescriptions = Vertex.GetAttributeDescriptions();
+        PipelineVertexInputStateCreateInfo vertexInfo = new()
         {
-            var bindingDescription = Vertex.GetBindingDescription();
-            var attributeDescriptions = Vertex.GetAttributeDescriptions();
-            
-            vertexInfo = new()
-            {
-                SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 1,
-                PVertexBindingDescriptions = &bindingDescription,
-                VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length
-            };
-            fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
-                vertexInfo.PVertexAttributeDescriptions = attributeDescriptionsPtr;
-        }
-        else
-        {
-            vertexInfo = new()
-            {
-                SType = StructureType.PipelineVertexInputStateCreateInfo,
-                VertexBindingDescriptionCount = 0,
-                PVertexAttributeDescriptions = default,
-                VertexAttributeDescriptionCount = 0,
-                PVertexBindingDescriptions = default
-            };
-        }
+            SType = StructureType.PipelineVertexInputStateCreateInfo,
+            VertexBindingDescriptionCount = 1,
+            PVertexBindingDescriptions = &bindingDescription,
+            VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length
+        };
+        fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
+            vertexInfo.PVertexAttributeDescriptions = attributeDescriptionsPtr;
 
         GraphicsPipelineCreateInfo pipelineInfo = new()
         {
@@ -180,6 +163,168 @@ unsafe public partial class VulkanRenderer
             Layout = pipelineLayout,
             Pipeline = pipeline
         };
+    }
+
+    GraphicsPipeline CreateLightingPipeline(string vertexShaderPath, string fragmentShaderPath, RenderPass renderPass, DescriptorSetLayout[] descriptorSetLayouts, uint colorAttachmentCount)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(vertexShaderPath);
+        byte[] fragmentShaderCode = File.ReadAllBytes(fragmentShaderPath);
+
+        var vertexShaderModule = CreateShaderModule(vertexShaderCode);
+        var fragmentShaderModule = CreateShaderModule(fragmentShaderCode);
+
+        PipelineShaderStageCreateInfo vertexShaderInfo = new()
+        {
+            SType = StructureType.PipelineShaderStageCreateInfo,
+            Stage = ShaderStageFlags.VertexBit,
+            Module = vertexShaderModule,
+            PName = (byte*) SilkMarshal.StringToPtr("main")
+        };
+
+        PipelineShaderStageCreateInfo fragmentShaderInfo = new()
+        {
+            SType = StructureType.PipelineShaderStageCreateInfo,
+            Stage = ShaderStageFlags.FragmentBit,
+            Module = fragmentShaderModule,
+            PName = (byte*) SilkMarshal.StringToPtr("main")
+        };
+
+        var shaderStagesInfo = stackalloc[] { vertexShaderInfo, fragmentShaderInfo };
+
+        var dynamicStates = stackalloc[] { DynamicState.Viewport, DynamicState.Scissor };
+        PipelineDynamicStateCreateInfo dynamicStateInfo = new()
+        {
+            SType = StructureType.PipelineDynamicStateCreateInfo,
+            DynamicStateCount = 2,
+            PDynamicStates = dynamicStates
+        };
+
+        PipelineInputAssemblyStateCreateInfo assemblyInfo = new()
+        {
+            SType = StructureType.PipelineInputAssemblyStateCreateInfo,
+            Topology = PrimitiveTopology.TriangleList,
+            PrimitiveRestartEnable = false
+        };
+        
+        PipelineViewportStateCreateInfo viewportInfo = new()
+        {
+            SType = StructureType.PipelineViewportStateCreateInfo,
+            ViewportCount = 1,
+            ScissorCount = 1
+        };
+
+        PipelineRasterizationStateCreateInfo rasterizerInfo = new()
+        {
+            SType = StructureType.PipelineRasterizationStateCreateInfo,
+            PolygonMode = PolygonMode.Fill,
+            LineWidth = 1.0f,
+            CullMode = CullModeFlags.FrontBit,
+            FrontFace = FrontFace.CounterClockwise
+        };
+
+        PipelineMultisampleStateCreateInfo multisampleInfo = new()
+        {
+            SType = StructureType.PipelineMultisampleStateCreateInfo,
+            SampleShadingEnable = false,
+            RasterizationSamples = SampleCountFlags.Count1Bit
+        };
+
+        var colorBlendAttachments = new PipelineColorBlendAttachmentState[colorAttachmentCount];
+        for (int i = 0; i < colorAttachmentCount; i++)
+        {
+            colorBlendAttachments[i] = new()
+            {
+                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit | ColorComponentFlags.BBit,
+                BlendEnable = true,
+                ColorBlendOp = BlendOp.Add
+            };
+        }
+
+        PipelineColorBlendStateCreateInfo colorBlendInfo = new()
+        {
+            SType = StructureType.PipelineColorBlendStateCreateInfo,
+            LogicOpEnable = false,
+            AttachmentCount = colorAttachmentCount,
+        };
+        fixed (PipelineColorBlendAttachmentState* colorBlendAttachmentsPtr = colorBlendAttachments)
+            colorBlendInfo.PAttachments = colorBlendAttachmentsPtr;
+
+        PipelineDepthStencilStateCreateInfo depthStencil = new()
+        {
+            SType = StructureType.PipelineDepthStencilStateCreateInfo,
+            DepthTestEnable = true,
+            DepthWriteEnable = true,
+            DepthCompareOp = CompareOp.Less,
+            DepthBoundsTestEnable = false
+        };
+
+        // light push constant
+        PushConstantRange range = new()
+        {
+            Size = 2 * 12, // two vec3 which are 12 bytes large
+            Offset = 0,
+            StageFlags = ShaderStageFlags.FragmentBit
+        };
+
+        PipelineLayoutCreateInfo pipelineLayoutInfo = new()
+        {
+            SType = StructureType.PipelineLayoutCreateInfo,
+            SetLayoutCount = (uint) descriptorSetLayouts.Length,
+            PushConstantRangeCount = 1,
+            PPushConstantRanges = &range
+        };
+        fixed (DescriptorSetLayout* descriptorSetLayoutsPtr = descriptorSetLayouts)
+            pipelineLayoutInfo.PSetLayouts = descriptorSetLayoutsPtr;
+
+        if (vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out var pipelineLayout) != Result.Success)
+        {
+            throw new Exception("Failed to create pipeline layout!");
+        }
+        
+        var bindingDescription = Vertex.GetBindingDescription();
+        var attributeDescriptions = Vertex.GetAttributeDescriptions();
+        PipelineVertexInputStateCreateInfo vertexInfo = new()
+        {
+            SType = StructureType.PipelineVertexInputStateCreateInfo,
+            VertexBindingDescriptionCount = 1,
+            PVertexBindingDescriptions = &bindingDescription,
+            VertexAttributeDescriptionCount = (uint) attributeDescriptions.Length
+        };
+        fixed (VertexInputAttributeDescription* attributeDescriptionsPtr = attributeDescriptions)
+            vertexInfo.PVertexAttributeDescriptions = attributeDescriptionsPtr;
+
+        GraphicsPipelineCreateInfo pipelineInfo = new()
+        {
+            SType = StructureType.GraphicsPipelineCreateInfo,
+            StageCount = 2,
+            PStages = shaderStagesInfo,
+            PInputAssemblyState = &assemblyInfo,
+            PViewportState = &viewportInfo,
+            PDepthStencilState = &depthStencil,
+            PDynamicState = &dynamicStateInfo,
+            PColorBlendState = &colorBlendInfo,
+            PMultisampleState = &multisampleInfo,
+            PRasterizationState = &rasterizerInfo,
+            PVertexInputState = &vertexInfo,
+            Layout = pipelineLayout,
+            RenderPass = renderPass,
+            Subpass = 0
+        };
+
+        if (vk.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out var pipeline) != Result.Success)
+        {
+            throw new Exception("Failed to create graphics pipeline!");
+        }
+
+        vk.DestroyShaderModule(device, vertexShaderModule, null);
+        vk.DestroyShaderModule(device, fragmentShaderModule, null);
+
+        return new GraphicsPipeline
+        {
+            Layout = pipelineLayout,
+            Pipeline = pipeline
+        };
+
     }
 
     DescriptorSetLayout CreateGBufferDescriptorSetLayout()
