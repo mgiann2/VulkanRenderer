@@ -52,6 +52,8 @@ unsafe public partial class VulkanRenderer
     const int MaxFramesInFlight = 2;
     const uint MaxGBufferDescriptorSets = 20;
 
+    const string SphereMeshPath = "models/sphere/sphere.glb";
+
     readonly string[] validationLayers = new[]
     {
         "VK_LAYER_KHRONOS_validation"
@@ -62,8 +64,8 @@ unsafe public partial class VulkanRenderer
         KhrSwapchain.ExtensionName
     };
 
-    VertexBuffer screenQuadVertexBuffer;
-    IndexBuffer screenQuadIndexBuffer;
+    Mesh screenQuadMesh;
+    Mesh sphereMesh;
 
     readonly Vk vk;
     readonly Device device; 
@@ -169,6 +171,7 @@ unsafe public partial class VulkanRenderer
 
         CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
+        // generate quad mesh
         Vertex[] vertices = new[] 
         {
             new Vertex() { pos = new Vector3D<float>(-1.0f, -1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) }, // top left
@@ -179,8 +182,14 @@ unsafe public partial class VulkanRenderer
 
         ushort[] indices = new ushort[] { 0, 2, 3, 0, 3, 1 };
 
-        screenQuadVertexBuffer = CreateVertexBuffer(vertices);
-        screenQuadIndexBuffer = CreateIndexBuffer(indices);
+        screenQuadMesh = new Mesh
+        {
+            VertexBuffer = CreateVertexBuffer(vertices),
+            IndexBuffer = CreateIndexBuffer(indices)
+        };
+
+        // load sphere mesh for lighting
+        sphereMesh = LoadMesh(SphereMeshPath);
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -337,9 +346,9 @@ unsafe public partial class VulkanRenderer
         vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
                 compositionPipeline.Layout, 0, 1, in compositionDescriptorSets[currentFrame], 0, default);
 
-        Bind(screenQuadVertexBuffer, compositionCommandBuffers[currentFrame]);
-        Bind(screenQuadIndexBuffer, compositionCommandBuffers[currentFrame]);
-        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], screenQuadIndexBuffer.IndexCount, 1, 0, 0, 0);
+        Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
+        Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
+        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
         vk.CmdEndRenderPass(compositionCommandBuffers[currentFrame]);
         if (vk.EndCommandBuffer(compositionCommandBuffers[currentFrame]) != Result.Success)
@@ -1369,6 +1378,9 @@ unsafe public partial class VulkanRenderer : IDisposable
                 vk.DestroyBuffer(device, uniformBuffers[i], null);
                 vk.FreeMemory(device, uniformBuffersMemory[i], null);
             }
+
+            UnloadMesh(screenQuadMesh);
+            UnloadMesh(sphereMesh);
 
             vk.DestroyDevice(device, null);
             vk.DestroyInstance(instance, null);
