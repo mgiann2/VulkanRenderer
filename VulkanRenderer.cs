@@ -46,6 +46,14 @@ public struct UniformBufferObject
     public Matrix4X4<float> proj;
 }
 
+public struct SceneInfo
+{
+    public Matrix4X4<float> CameraView;
+    public Matrix4X4<float> CameraProjection;
+    public Vector3D<float> AmbientLightColor;
+    public float AmbientLightStrength;
+}
+
 unsafe public partial class VulkanRenderer
 {
     readonly bool EnableValidationLayers;
@@ -91,15 +99,19 @@ unsafe public partial class VulkanRenderer
     FramebufferAttachment depthAttachment;
     RenderPass compositionRenderPass;
 
-    Buffer[] uniformBuffers;
-    DeviceMemory[] uniformBuffersMemory;
+    Buffer[] sceneInfoBuffers;
+    DeviceMemory[] sceneInfoBuffersMemory;
 
-    DescriptorSetLayout gBufferDescriptorSetLayout;
-    DescriptorPool gBufferDescriptorPool;
+    DescriptorSetLayout sceneInfoDescriptorSetLayout;
+    DescriptorSetLayout materialInfoDescriptorSetLayout;
+    DescriptorSetLayout screenTextureDescriptorSetLayout;
 
-    DescriptorSetLayout compositionDescriptorSetLayout;
-    DescriptorPool compositionDescriptorPool;
-    DescriptorSet[] compositionDescriptorSets;
+    DescriptorPool sceneInfoDescriptorPool;
+    DescriptorPool materialInfoDescriptorPool;
+    DescriptorPool screenTextureDescriptorPool;
+
+    DescriptorSet[] sceneInfoDescriptorSets;
+    DescriptorSet[] screenTextureInfoDescriptorSets;
 
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
@@ -139,31 +151,34 @@ unsafe public partial class VulkanRenderer
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out swapchainInfo);
 
-        CreateUniformBuffers(out uniformBuffers, out uniformBuffersMemory);
+        CreateUniformBuffers(out sceneInfoBuffers, out sceneInfoBuffersMemory, (ulong) Unsafe.SizeOf<SceneInfo>());
         CreateTextureSampler(out textureSampler);
 
         // Create descriptor pools
-        gBufferDescriptorPool = CreateGBufferDescriptorPool(MaxGBufferDescriptorSets);
-        compositionDescriptorPool = CreateCompositionDescriptorPool();
+        sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool();
+        materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxGBufferDescriptorSets);
+        screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
 
         // Create descriptor set layouts
-        gBufferDescriptorSetLayout = CreateGBufferDescriptorSetLayout();
-        compositionDescriptorSetLayout = CreateCompositionDescriptorSetLayout();
+        sceneInfoDescriptorSetLayout = CreateSceneInfoDescriptorSetLayout();
+        materialInfoDescriptorSetLayout = CreateMaterialInfoDescriptorSetLayout();
+        screenTextureDescriptorSetLayout = CreateScreenTexureInfoDescriptorSetLayout();
 
         // create render passes
         CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
         CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
 
         // Create composition pass descriptor set
-        compositionDescriptorSets = CreateCompositionDescriptorSets();
+        sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets();
+        screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets();
 
         // Create pipelines
         geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
-                geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 4);
+                geometryRenderPass, new[] { sceneInfoDescriptorSetLayout, materialInfoDescriptorSetLayout }, 4);
         compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
-                compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
+                compositionRenderPass, new[] { sceneInfoDescriptorSetLayout, screenTextureDescriptorSetLayout }, 1);
         // lightingPipeline = CreateLightingPipeline("shaders/light.vert.spv", "shaders/light.frag.spv",
-        //         compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
+        //         compositionRenderPass, new[] { sceneInfoDescriptorSetLayout, screenTextureDescriptorSetLayout }, 1);
 
         // create commnad pool and buffers
         CreateCommandPool(out commandPool);
@@ -275,6 +290,9 @@ unsafe public partial class VulkanRenderer
             Extent = swapchainInfo.Extent
         };
         vk.CmdSetScissor(geometryCommandBuffers[currentFrame], 0, 1, in scissor);
+
+        vk.CmdBindDescriptorSets(geometryCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+                                 geometryPipeline.Layout, 0, 1, in sceneInfoDescriptorSets[currentFrame], 0, default);
     }
 
     public void EndFrame()
@@ -343,8 +361,9 @@ unsafe public partial class VulkanRenderer
         };
         vk.CmdSetScissor(compositionCommandBuffers[currentFrame], 0, 1, in scissor);
 
+        var descriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], screenTextureInfoDescriptorSets[currentFrame] };
         vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
-                compositionPipeline.Layout, 0, 1, in compositionDescriptorSets[currentFrame], 0, default);
+                compositionPipeline.Layout, 0, 2, descriptorSets, 0, default);
 
         Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
         Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
@@ -428,12 +447,12 @@ unsafe public partial class VulkanRenderer
         vk.DeviceWaitIdle(device);
     }
 
-    public void UpdateUniformBuffer(UniformBufferObject ubo)
+    public void UpdateSceneInfo(SceneInfo sceneInfo)
     {
         void* data;
-        vk.MapMemory(device, uniformBuffersMemory[currentFrame], 0, (ulong)Unsafe.SizeOf<UniformBufferObject>(), 0, &data);
-        new Span<UniformBufferObject>(data, 1)[0] = ubo;
-        vk.UnmapMemory(device, uniformBuffersMemory[currentFrame]);
+        vk.MapMemory(device, sceneInfoBuffersMemory[currentFrame], 0, (ulong) Unsafe.SizeOf<SceneInfo>(), 0, &data);
+        new Span<SceneInfo>(data, 1)[0] = sceneInfo;
+        vk.UnmapMemory(device, sceneInfoBuffersMemory[currentFrame]);
     }
 
     void CreateBuffer(ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, out Buffer newBuffer, out DeviceMemory newBufferMemory)
@@ -781,12 +800,12 @@ unsafe public partial class VulkanRenderer
         CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
         CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
 
-        UpdateCompositionDescriptorSets(compositionDescriptorSets, gBuffer);
+        UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBuffer);
 
         geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
-                geometryRenderPass, new[] { gBufferDescriptorSetLayout }, 4);
+                geometryRenderPass, new[] { sceneInfoDescriptorSetLayout, materialInfoDescriptorSetLayout }, 4);
         compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
-                compositionRenderPass, new[] { compositionDescriptorSetLayout }, 1);
+                compositionRenderPass, new[] { sceneInfoDescriptorSetLayout, screenTextureDescriptorSetLayout }, 1);
     }
 
     ShaderModule CreateShaderModule(byte[] shaderCode)
@@ -812,10 +831,8 @@ unsafe public partial class VulkanRenderer
         return shaderModule;
     }
 
-    void CreateUniformBuffers(out Buffer[] uniformBuffers, out DeviceMemory[] uniformBuffersMemory)
+    void CreateUniformBuffers(out Buffer[] uniformBuffers, out DeviceMemory[] uniformBuffersMemory, ulong bufferSize)
     {
-        ulong bufferSize = (ulong) (Unsafe.SizeOf<UniformBufferObject>());
-
         uniformBuffers = new Buffer[MaxFramesInFlight];
         uniformBuffersMemory = new DeviceMemory[MaxFramesInFlight];
 
@@ -1375,8 +1392,8 @@ unsafe public partial class VulkanRenderer : IDisposable
 
             for (int i = 0; i < MaxFramesInFlight; i++)
             {
-                vk.DestroyBuffer(device, uniformBuffers[i], null);
-                vk.FreeMemory(device, uniformBuffersMemory[i], null);
+                vk.DestroyBuffer(device, sceneInfoBuffers[i], null);
+                vk.FreeMemory(device, sceneInfoBuffersMemory[i], null);
             }
 
             UnloadMesh(screenQuadMesh);

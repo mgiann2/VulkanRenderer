@@ -37,18 +37,20 @@ class Program
             var time = window.Time;
             (var width, var height) = (window.FramebufferSize.X, window.FramebufferSize.Y);
 
-            UniformBufferObject ubo = new()
+            SceneInfo sceneInfo = new()
             {
-                model = modelTransform.Matrix * Matrix4X4.CreateRotationY((float) time * Radians(90.0f)),
-                view = camera.GetViewMatrix(),
-                proj = camera.GetProjectionMatrix((float) width / height) 
+                CameraView = camera.GetViewMatrix(),
+                CameraProjection = camera.GetProjectionMatrix((float) width / height),
+                AmbientLightColor = new Vector3D<float>(0.0f),
+                AmbientLightStrength = 0.0f
             };
-            renderer.UpdateUniformBuffer(ubo);
+            renderer.UpdateSceneInfo(sceneInfo);
+            var modelMatrix = modelTransform.Matrix * Matrix4X4.CreateRotationY(Radians(90.0f) * (float)time);
 
             // start rendering
             renderer.BeginFrame();
 
-            renderer.DrawModel(model);
+            renderer.DrawModel(model, modelMatrix);
 
             renderer.EndFrame();
         };

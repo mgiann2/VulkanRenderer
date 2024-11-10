@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Silk.NET.Vulkan;
 using StbiSharp;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -50,7 +49,7 @@ unsafe public partial class VulkanRenderer
         var normalTexture = CreateTexture(normalPath);
         var metalnessTexture = CreateTexture(metalnessPath);
 
-        var descriptorSets = CreateGBufferDescriptorSets(albedoTexture.TextureImageView,
+        var descriptorSets = CreateMaterialInfoDescriptorSets(albedoTexture.TextureImageView,
                                                          normalTexture.TextureImageView,
                                                          metalnessTexture.TextureImageView);
 
@@ -66,7 +65,7 @@ unsafe public partial class VulkanRenderer
     public void BindMaterial(Material material)
     {
         vk.CmdBindDescriptorSets(geometryCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
-                                 geometryPipeline.Layout, 0, 1, in material.DescriptorSets[currentFrame], 0, default);
+                                 geometryPipeline.Layout, 1, 1, in material.DescriptorSets[currentFrame], 0, default);
     }
 
     public void DestroyTexture(Texture texture)
@@ -80,7 +79,7 @@ unsafe public partial class VulkanRenderer
     {
         fixed (DescriptorSet* descriptorSetsPtr = material.DescriptorSets)
         {
-            vk.FreeDescriptorSets(device, gBufferDescriptorPool,
+            vk.FreeDescriptorSets(device, materialInfoDescriptorPool,
                     (uint) material.DescriptorSets.Length, descriptorSetsPtr);
         }
 

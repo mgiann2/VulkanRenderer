@@ -1,5 +1,7 @@
+using System.Runtime.CompilerServices;
 using Silk.NET.Assimp;
 using Silk.NET.Maths;
+using Silk.NET.Vulkan;
 
 public readonly struct Model
 {
@@ -169,12 +171,14 @@ unsafe public partial class VulkanRenderer
         }
     }
 
-    public void DrawModel(Model model)
+    public void DrawModel(Model model, Matrix4X4<float> modelMatrix)
     {
         Bind(model.VertexBuffer, geometryCommandBuffers[currentFrame]);
         Bind(model.IndexBuffer, geometryCommandBuffers[currentFrame]);
         BindMaterial(model.Material);
 
+        vk.CmdPushConstants(geometryCommandBuffers[currentFrame], geometryPipeline.Layout,
+                            ShaderStageFlags.VertexBit, 0, (uint) Unsafe.SizeOf<Matrix4X4<float>>(), &modelMatrix);
         vk.CmdDrawIndexed(geometryCommandBuffers[currentFrame], model.IndexBuffer.IndexCount, 1, 0, 0, 0);
     }
 
