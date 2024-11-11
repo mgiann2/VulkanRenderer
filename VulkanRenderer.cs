@@ -39,13 +39,6 @@ struct SwapchainInfo
     public Format ImageFormat { get; init; }
 }
 
-public struct UniformBufferObject
-{
-    public Matrix4X4<float> model;
-    public Matrix4X4<float> view;
-    public Matrix4X4<float> proj;
-}
-
 public struct SceneInfo
 {
     public Matrix4X4<float> CameraView;

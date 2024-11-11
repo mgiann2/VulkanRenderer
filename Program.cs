@@ -41,8 +41,8 @@ class Program
             {
                 CameraView = camera.GetViewMatrix(),
                 CameraProjection = camera.GetProjectionMatrix((float) width / height),
-                AmbientLightColor = new Vector3D<float>(0.0f),
-                AmbientLightStrength = 0.0f
+                AmbientLightColor = new Vector3D<float>(1.0f),
+                AmbientLightStrength = 0.1f
             };
             renderer.UpdateSceneInfo(sceneInfo);
             var modelMatrix = modelTransform.Matrix * Matrix4X4.CreateRotationY(Radians(90.0f) * (float)time);

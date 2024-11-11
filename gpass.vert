@@ -1,11 +1,11 @@
 #version 450
 
-layout (set = 0, binding = 0) uniform UniformBufferObject {
+layout (set = 0, binding = 0) uniform SceneInfo {
     mat4 cameraView;
     mat4 cameraProj;
     vec3 ambientLightColor;
     float ambientLightStrength;
-} ubo;
+} sceneInfo;
 
 layout (push_constant) uniform PushConstants
 {
@@ -22,7 +22,7 @@ layout (location = 1) out vec4 outPosition;
 layout (location = 2) out mat3 outTBN;
 
 void main() {
-    outPosition = ubo.cameraProj * ubo.cameraView * pc.model * vec4(inPosition, 1.0);
+    outPosition = sceneInfo.cameraProj * sceneInfo.cameraView * pc.model * vec4(inPosition, 1.0);
     gl_Position = outPosition;
     outTexCoord = inTexCoord;
 
