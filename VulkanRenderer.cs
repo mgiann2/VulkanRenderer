@@ -47,8 +47,18 @@ public struct SceneInfo
     public float AmbientLightStrength;
 }
 
+public struct LightInfo
+{
+    public Matrix4X4<float> Model;
+    public Vector4D<float> Position;
+    public Vector4D<float> Color;
+}
+
 unsafe public partial class VulkanRenderer
 {
+    // TODO: temporary to test lights
+    public List<Light> Lights = new List<Light>();
+
     readonly bool EnableValidationLayers;
     const int MaxFramesInFlight = 2;
     const uint MaxGBufferDescriptorSets = 20;
@@ -166,12 +176,9 @@ unsafe public partial class VulkanRenderer
         screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets();
 
         // Create pipelines
-        geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
-                geometryRenderPass, new[] { sceneInfoDescriptorSetLayout, materialInfoDescriptorSetLayout }, 4);
-        compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
-                compositionRenderPass, new[] { sceneInfoDescriptorSetLayout, screenTextureDescriptorSetLayout }, 1);
-        // lightingPipeline = CreateLightingPipeline("shaders/light.vert.spv", "shaders/light.frag.spv",
-        //         compositionRenderPass, new[] { sceneInfoDescriptorSetLayout, screenTextureDescriptorSetLayout }, 1);
+        geometryPipeline = CreateGeometryPipeline();
+        compositionPipeline = CreateCompositionPipeline();
+        lightingPipeline = CreateLightingPipeline();
 
         // create commnad pool and buffers
         CreateCommandPool(out commandPool);
@@ -334,8 +341,6 @@ unsafe public partial class VulkanRenderer
 
         vk.CmdBeginRenderPass(compositionCommandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
 
-        vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
-
         Viewport viewport = new()
         {
             X = 0.0f,
@@ -355,12 +360,30 @@ unsafe public partial class VulkanRenderer
         vk.CmdSetScissor(compositionCommandBuffers[currentFrame], 0, 1, in scissor);
 
         var descriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], screenTextureInfoDescriptorSets[currentFrame] };
+
+        vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
         vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
                 compositionPipeline.Layout, 0, 2, descriptorSets, 0, default);
 
         Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
         Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
         vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+        // draw point lights
+        vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, lightingPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+                lightingPipeline.Layout, 0, 2, descriptorSets, 0, default);
+        Bind(sphereMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
+        Bind(sphereMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
+        foreach (var light in Lights)
+        {
+            var lightInfo = light.ToInfo();
+            vk.CmdPushConstants(compositionCommandBuffers[currentFrame], lightingPipeline.Layout,
+                                ShaderStageFlags.VertexBit, 0,
+                                (uint) Unsafe.SizeOf<LightInfo>(), &lightInfo);
+
+            vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], sphereMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        }
 
         vk.CmdEndRenderPass(compositionCommandBuffers[currentFrame]);
         if (vk.EndCommandBuffer(compositionCommandBuffers[currentFrame]) != Result.Success)
@@ -795,10 +818,8 @@ unsafe public partial class VulkanRenderer
 
         UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBuffer);
 
-        geometryPipeline = CreatePipeline("shaders/gpass.vert.spv", "shaders/gpass.frag.spv",
-                geometryRenderPass, new[] { sceneInfoDescriptorSetLayout, materialInfoDescriptorSetLayout }, 4);
-        compositionPipeline = CreatePipeline("shaders/composition.vert.spv", "shaders/composition.frag.spv",
-                compositionRenderPass, new[] { sceneInfoDescriptorSetLayout, screenTextureDescriptorSetLayout }, 1);
+        geometryPipeline = CreateGeometryPipeline();
+        compositionPipeline = CreateCompositionPipeline();
     }
 
     ShaderModule CreateShaderModule(byte[] shaderCode)

@@ -22,7 +22,7 @@ public class Camera
         return Matrix4X4.CreateLookAt(Transform.Position, Transform.Position + Transform.Forward, Transform.Up); 
     }
 
-    public Matrix4X4<float> GetProjectionMatrix(float aspectRatio, float nearPlaneDistance = 0.1f, float farPlaneDistance = 10.0f)
+    public Matrix4X4<float> GetProjectionMatrix(float aspectRatio, float nearPlaneDistance = 0.1f, float farPlaneDistance = 100.0f)
     {
         var proj = Matrix4X4.CreatePerspectiveFieldOfView(Fov * MathF.PI / 180.0f, aspectRatio, nearPlaneDistance, farPlaneDistance);
         proj.M22 *= -1f; // flip y-axis since positive y points down

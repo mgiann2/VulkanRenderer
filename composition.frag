@@ -16,9 +16,6 @@ void main() {
     vec3 fragNorm = normalize(texture(normalSampler, inTexCoord).rgb);
     vec3 fragPos = texture(positionSampler, inTexCoord).rgb;
 
-    // hardcoded light information
-    vec3 viewPos = vec3(0.0, 0.5, -3.0);
-
     // ambient lighting
     vec3 ambient = inAmbientStrength * inAmbientColor;
 

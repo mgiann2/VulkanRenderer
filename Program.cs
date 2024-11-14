@@ -29,6 +29,21 @@ class Program
         camera.Transform.Position = new Vector3D<float>(0f, 0.5f, -3f);
         camera.Fov = 45.0f;
 
+        var lights = new Light[]
+        {
+            new()
+            {
+                Position = new Vector3D<float>(-3.0f, 0.0f, 1.0f),
+                Color = new Vector3D<float>(0.0f, 1.0f, 0.0f),
+            },
+            new()
+            {
+                Position = new Vector3D<float>(3.0f, 0.0f, 1.0f),
+                Color = new Vector3D<float>(0.0f, 0.0f, 1.0f)
+            }
+        };
+        renderer.Lights.AddRange(lights);
+
         var modelTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(-90.0f, 0.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
 
         window.Render += (double deltaTime) =>
