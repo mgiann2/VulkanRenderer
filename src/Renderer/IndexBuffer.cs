@@ -2,6 +2,8 @@ using System.Runtime.CompilerServices;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
+namespace Renderer;
+
 public readonly struct IndexBuffer
 {
     public Buffer Buffer { get; init; }

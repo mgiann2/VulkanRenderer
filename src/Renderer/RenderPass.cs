@@ -1,5 +1,7 @@
 using Silk.NET.Vulkan;
 
+namespace Renderer;
+
 struct FramebufferAttachment
 {
     public Format Format { get; init; }

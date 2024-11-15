@@ -1,5 +1,7 @@
 using Silk.NET.Maths;
 
+namespace Renderer;
+
 public class Camera
 {
     public Transform Transform { get; set; }

@@ -11,6 +11,8 @@ using Silk.NET.Windowing;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
+namespace Renderer;
+
 struct QueueFamilyIndices
 {
     public uint? GraphicsFamily { get; set; }
@@ -56,6 +58,9 @@ public struct LightInfo
 
 unsafe public partial class VulkanRenderer
 {
+    const string AssetsPath = "assets/";
+    const string ShadersPath = "compiled_shaders/";
+
     // TODO: temporary to test lights
     public List<Light> Lights = new List<Light>();
 
@@ -63,7 +68,7 @@ unsafe public partial class VulkanRenderer
     const int MaxFramesInFlight = 2;
     const uint MaxGBufferDescriptorSets = 20;
 
-    const string SphereMeshPath = "models/sphere/sphere.glb";
+    const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
 
     readonly string[] validationLayers = new[]
     {

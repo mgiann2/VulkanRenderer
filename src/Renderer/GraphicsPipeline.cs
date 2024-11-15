@@ -3,6 +3,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 
+namespace Renderer;
+
 public struct GraphicsPipeline
 {
     public Pipeline Pipeline { get; init; }
@@ -11,8 +13,6 @@ public struct GraphicsPipeline
 
 unsafe public partial class VulkanRenderer
 {
-    const string ShaderDir = "shaders/";
-
     const string GeometryVertexShaderFilename = "gpass.vert.spv";
     const string GeometryFragmentShaderFilename = "gpass.frag.spv";
 
@@ -27,8 +27,8 @@ unsafe public partial class VulkanRenderer
 
     GraphicsPipeline CreateGeometryPipeline()
     {
-        byte[] vertexShaderCode = File.ReadAllBytes(ShaderDir + GeometryVertexShaderFilename);
-        byte[] fragmentShaderCode = File.ReadAllBytes(ShaderDir + GeometryFragmentShaderFilename);
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + GeometryVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + GeometryFragmentShaderFilename);
 
         var vertexShaderModule = CreateShaderModule(vertexShaderCode);
         var fragmentShaderModule = CreateShaderModule(fragmentShaderCode);
@@ -188,8 +188,8 @@ unsafe public partial class VulkanRenderer
 
     GraphicsPipeline CreateCompositionPipeline()
     {
-        byte[] vertexShaderCode = File.ReadAllBytes(ShaderDir + CompositionVertexShaderFilename);
-        byte[] fragmentShaderCode = File.ReadAllBytes(ShaderDir + CompositionFragmentShaderFilename);
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + CompositionVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + CompositionFragmentShaderFilename);
 
         var vertexShaderModule = CreateShaderModule(vertexShaderCode);
         var fragmentShaderModule = CreateShaderModule(fragmentShaderCode);
@@ -339,8 +339,8 @@ unsafe public partial class VulkanRenderer
 
     GraphicsPipeline CreateLightingPipeline()
     {
-        byte[] vertexShaderCode = File.ReadAllBytes(ShaderDir + LightingVertexShaderFilename);
-        byte[] fragmentShaderCode = File.ReadAllBytes(ShaderDir + LightingFragmentShaderFilename);
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + LightingVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + LightingFragmentShaderFilename);
 
         var vertexShaderModule = CreateShaderModule(vertexShaderCode);
         var fragmentShaderModule = CreateShaderModule(fragmentShaderCode);

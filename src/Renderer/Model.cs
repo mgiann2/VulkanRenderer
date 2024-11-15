@@ -3,6 +3,8 @@ using Silk.NET.Assimp;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 
+namespace Renderer;
+
 public readonly struct Model
 {
     public VertexBuffer VertexBuffer { get; init; }

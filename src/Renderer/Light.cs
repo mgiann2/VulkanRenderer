@@ -1,5 +1,7 @@
 using Silk.NET.Maths;
 
+namespace Renderer;
+
 public class Light
 {
     public Vector3D<float> Position { get; set; }

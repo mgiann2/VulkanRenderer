@@ -1,8 +1,12 @@
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
+using Renderer;
 
 class Program
 {
+    const string ComputerModelPath = "assets/models/retro_computer/";
+    const string ComputerTexturePath = "textures/retro_computer_setup_Mat_";
+
     public static void Main(string[] args)
     {
         var options = WindowOptions.DefaultVulkan with
@@ -21,10 +25,10 @@ class Program
 
         var renderer = new VulkanRenderer(window, true);
 
-        var model = renderer.LoadModel("models/retro_computer/scene.gltf",
-                                       "models/retro_computer/textures/retro_computer_setup_Mat_baseColor.png",
-                                       "models/retro_computer/textures/retro_computer_setup_Mat_normal.png",
-                                       "models/retro_computer/textures/retro_computer_setup_Mat_metallicRoughness.png");
+        var model = renderer.LoadModel(ComputerModelPath + "scene.gltf",
+                                       ComputerModelPath + ComputerTexturePath + "baseColor.png",
+                                       ComputerModelPath + ComputerTexturePath + "normal.png",
+                                       ComputerModelPath + ComputerTexturePath + "metallicRoughness.png");
         var camera = new Camera();
         camera.Transform.Position = new Vector3D<float>(0f, 0.5f, -3f);
         camera.Fov = 45.0f;

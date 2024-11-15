@@ -2,6 +2,8 @@ using Silk.NET.Vulkan;
 using StbiSharp;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
+namespace Renderer;
+
 public struct Texture
 {
     public Image TextureImage { get; init; }

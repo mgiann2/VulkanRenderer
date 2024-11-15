@@ -1,5 +1,7 @@
 using Silk.NET.Maths;
 
+namespace Renderer;
+
 public class Transform
 {
     protected Vector3D<float> position;

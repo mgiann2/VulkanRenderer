@@ -4,6 +4,8 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+namespace Renderer;
+
 public struct Vertex
 {
     public Vector3D<float> pos;
