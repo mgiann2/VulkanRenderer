@@ -633,7 +633,7 @@ unsafe public partial class VulkanRenderer
             StageFlags = ShaderStageFlags.FragmentBit
         };
 
-        DescriptorSetLayoutBinding metalnessSamplerBinding = new()
+        DescriptorSetLayoutBinding aoRoughnessMetalnessSamplerBinding = new()
         {
             Binding = 2,
             DescriptorType = DescriptorType.CombinedImageSampler,
@@ -642,7 +642,7 @@ unsafe public partial class VulkanRenderer
             StageFlags = ShaderStageFlags.FragmentBit
         };
 
-        var bindings = new DescriptorSetLayoutBinding[] { albedoSamplerBinding, normalSamplerBinding, metalnessSamplerBinding };
+        var bindings = new DescriptorSetLayoutBinding[] { albedoSamplerBinding, normalSamplerBinding, aoRoughnessMetalnessSamplerBinding };
 
         DescriptorSetLayoutCreateInfo layoutInfo = new()
         {
@@ -685,7 +685,7 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateMaterialInfoDescriptorSets(ImageView albedoView, ImageView normalView, ImageView metalnessView)
+    DescriptorSet[] CreateMaterialInfoDescriptorSets(ImageView albedoView, ImageView normalView, ImageView aoRoughnessMetalnessView)
     {
         var descriptorSets = new DescriptorSet[MaxFramesInFlight];
 
@@ -727,10 +727,10 @@ unsafe public partial class VulkanRenderer
                 Sampler = textureSampler
             };
 
-            DescriptorImageInfo metalnessInfo = new()
+            DescriptorImageInfo aoRoughnessMetalnessInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = metalnessView,
+                ImageView = aoRoughnessMetalnessView,
                 Sampler = textureSampler
             };
 
@@ -764,7 +764,7 @@ unsafe public partial class VulkanRenderer
                     DstArrayElement = 0,
                     DescriptorType = DescriptorType.CombinedImageSampler,
                     DescriptorCount = 1,
-                    PImageInfo = &metalnessInfo
+                    PImageInfo = &aoRoughnessMetalnessInfo
                 }
             };
 
@@ -798,7 +798,7 @@ unsafe public partial class VulkanRenderer
             StageFlags = ShaderStageFlags.FragmentBit
         };
 
-        DescriptorSetLayoutBinding specularSamplerBinding = new()
+        DescriptorSetLayoutBinding aoRoughnessMetalnessSamplerBinding = new()
         {
             Binding = 2,
             DescriptorType = DescriptorType.CombinedImageSampler,
@@ -816,7 +816,7 @@ unsafe public partial class VulkanRenderer
             StageFlags = ShaderStageFlags.FragmentBit
         };
 
-        var bindings = stackalloc[] { albedoSamplerBinding, normalSamplerBinding, specularSamplerBinding, positionSamplerBinding };
+        var bindings = stackalloc[] { albedoSamplerBinding, normalSamplerBinding, aoRoughnessMetalnessSamplerBinding, positionSamplerBinding };
 
         DescriptorSetLayoutCreateInfo layoutInfo = new()
         {
@@ -899,7 +899,7 @@ unsafe public partial class VulkanRenderer
                 Sampler = textureSampler
             };
 
-            DescriptorImageInfo specularInfo = new()
+            DescriptorImageInfo aoRoughnessMetalnessInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
                 ImageView = gBuffer.Specular.ImageView,
@@ -943,7 +943,7 @@ unsafe public partial class VulkanRenderer
                     DstArrayElement = 0,
                     DescriptorType = DescriptorType.CombinedImageSampler,
                     DescriptorCount = 1,
-                    PImageInfo = &specularInfo
+                    PImageInfo = &aoRoughnessMetalnessInfo
                 },
                 new()
                 {
@@ -982,7 +982,7 @@ unsafe public partial class VulkanRenderer
                 Sampler = textureSampler
             };
 
-            DescriptorImageInfo specularInfo = new()
+            DescriptorImageInfo aoRoughnessMetalnessInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
                 ImageView = gBuffer.Specular.ImageView,
@@ -1026,93 +1026,12 @@ unsafe public partial class VulkanRenderer
                     DstArrayElement = 0,
                     DescriptorType = DescriptorType.CombinedImageSampler,
                     DescriptorCount = 1,
-                    PImageInfo = &specularInfo
+                    PImageInfo = &aoRoughnessMetalnessInfo
                 },
                 new()
                 {
                     SType = StructureType.WriteDescriptorSet,
                     DstSet = descriptorSets[i],
-                    DstBinding = 3,
-                    DstArrayElement = 0,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    DescriptorCount = 1,
-                    PImageInfo = &positionInfo
-                }
-            };
-
-            fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
-                vk.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
-        }
-    }
-
-    void UpdateCompositionDescriptorSets(DescriptorSet[] compositionDescriptorSets, GBuffer gBuffer)
-    {
-        for (int i = 0; i < MaxFramesInFlight; i++)
-        {
-            DescriptorImageInfo albedoInfo = new()
-            {
-                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Albedo.ImageView,
-                Sampler = textureSampler
-            };
-
-            DescriptorImageInfo normalInfo = new()
-            {
-                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Normal.ImageView,
-                Sampler = textureSampler
-            };
-
-            DescriptorImageInfo specularInfo = new()
-            {
-                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Specular.ImageView,
-                Sampler = textureSampler
-            };
-
-            DescriptorImageInfo positionInfo = new()
-            {
-                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Position.ImageView,
-                Sampler = textureSampler
-            };
-
-            var descriptorWrites = new WriteDescriptorSet[]
-            {
-                new()
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = compositionDescriptorSets[i],
-                    DstBinding = 0,
-                    DstArrayElement = 0,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    DescriptorCount = 1,
-                    PImageInfo = &albedoInfo
-                },
-                new()
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = compositionDescriptorSets[i],
-                    DstBinding = 1,
-                    DstArrayElement = 0,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    DescriptorCount = 1,
-                    PImageInfo = &normalInfo
-                },
-                new()
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = compositionDescriptorSets[i],
-                    DstBinding = 2,
-                    DstArrayElement = 0,
-                    DescriptorType = DescriptorType.CombinedImageSampler,
-                    DescriptorCount = 1,
-                    PImageInfo = &specularInfo
-                },
-                new()
-                {
-                    SType = StructureType.WriteDescriptorSet,
-                    DstSet = compositionDescriptorSets[i],
                     DstBinding = 3,
                     DstArrayElement = 0,
                     DescriptorType = DescriptorType.CombinedImageSampler,

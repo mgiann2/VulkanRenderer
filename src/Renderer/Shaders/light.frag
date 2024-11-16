@@ -2,7 +2,7 @@
 
 layout (set = 1, binding = 0) uniform sampler2D albedoSampler;
 layout (set = 1, binding = 1) uniform sampler2D normalSampler;
-layout (set = 1, binding = 2) uniform sampler2D specularSampler;
+layout (set = 1, binding = 2) uniform sampler2D aoRoughnessMetalnessSampler;
 layout (set = 1, binding = 3) uniform sampler2D positionSampler;
 
 layout(location = 0) in vec3 inLightColor;

@@ -23,7 +23,7 @@ unsafe public partial class VulkanRenderer
     public Model LoadModel(string modelPath,
                            string albedoPath,
                            string normalPath,
-                           string metalnessPath)
+                           string aoRoughnessMetalnessPath)
     {
         // load model
         uint postProcessSteps = (uint) (PostProcessSteps.FlipUVs | PostProcessSteps.Triangulate | PostProcessSteps.CalculateTangentSpace);
@@ -43,7 +43,7 @@ unsafe public partial class VulkanRenderer
         var indexBuffer = CreateIndexBuffer(Array.ConvertAll(indices.ToArray(), val => (ushort)val));
 
         // create texture
-        var material = CreateMaterial(albedoPath, normalPath, metalnessPath);
+        var material = CreateMaterial(albedoPath, normalPath, aoRoughnessMetalnessPath);
 
         return new Model()
         {

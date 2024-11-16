@@ -15,7 +15,7 @@ public struct Material
 {
     public Texture Albedo { get; init; }
     public Texture Normal { get; init; }
-    public Texture Metalness { get; init; }
+    public Texture AORoughnessMetalness { get; init; }
     public DescriptorSet[] DescriptorSets { get; init; }
 }
 
@@ -45,21 +45,21 @@ unsafe public partial class VulkanRenderer
         };
     }
 
-    public Material CreateMaterial(string albedoPath, string normalPath, string metalnessPath)
+    public Material CreateMaterial(string albedoPath, string normalPath, string aoRoughnessMetalnessPath)
     {
         var albedoTexture = CreateTexture(albedoPath);
         var normalTexture = CreateTexture(normalPath);
-        var metalnessTexture = CreateTexture(metalnessPath);
+        var aoRoughnessMetalnessTexture = CreateTexture(aoRoughnessMetalnessPath);
 
         var descriptorSets = CreateMaterialInfoDescriptorSets(albedoTexture.TextureImageView,
                                                          normalTexture.TextureImageView,
-                                                         metalnessTexture.TextureImageView);
+                                                         aoRoughnessMetalnessTexture.TextureImageView);
 
         return new Material
         {
             Albedo = albedoTexture,
             Normal = normalTexture,
-            Metalness = metalnessTexture,
+            AORoughnessMetalness = aoRoughnessMetalnessTexture,
             DescriptorSets = descriptorSets
         };
     }
@@ -87,7 +87,7 @@ unsafe public partial class VulkanRenderer
 
         DestroyTexture(material.Albedo);
         DestroyTexture(material.Normal);
-        DestroyTexture(material.Metalness);
+        DestroyTexture(material.AORoughnessMetalness);
     }
 
     (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream)
