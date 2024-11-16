@@ -19,9 +19,9 @@ public class Light
 
     private float CalculateVolumeSize()
     {
-        // attenuation function is 1 + d^2
+        // attenuation function is d^2
         // volume radius is when attenuation equals 5 / 256
         float maxIntensity = new float[] { Color.X, Color.Y, Color.Z }.Max();
-        return 16 * MathF.Sqrt(maxIntensity / 5) - 1;
+        return 16 * MathF.Sqrt(maxIntensity / 5);
     }
 }

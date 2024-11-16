@@ -18,7 +18,7 @@ void main() {
 
     // diffuse lighting
     float distance = length(inLightPos - fragPos);
-    float attenuation = 1.0 / (1.0 + (distance * distance));
+    float attenuation = 1.0 / (distance * distance);
     vec3 lightDir = normalize(inLightPos - fragPos);
     float diff = max(dot(fragNorm, lightDir), 0.0);
     vec3 diffuse = inLightColor * attenuation;
