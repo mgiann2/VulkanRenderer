@@ -3,7 +3,7 @@ using Silk.NET.Vulkan;
 
 namespace Renderer;
 
-unsafe public class GraphicsPipelineBuilder
+unsafe public class GraphicsPipelineBuilder : IDisposable
 {
     Vk vk;
     Device device;
@@ -15,6 +15,8 @@ unsafe public class GraphicsPipelineBuilder
     PipelineDepthStencilStateCreateInfo? depthStencilInfo;
     List<PushConstantRange> pushConstantRanges = new List<PushConstantRange>();
     List<DescriptorSetLayout> descriptorSetLayouts = new List<DescriptorSetLayout>();
+
+    bool disposedValue;
 
     public GraphicsPipelineBuilder(Device device) 
     {
@@ -318,5 +320,29 @@ unsafe public class GraphicsPipelineBuilder
         }
 
         return shaderModule;
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            foreach (var shaderStageInfo in shaderStagesInfo)
+            {
+                vk.DestroyShaderModule(device, shaderStageInfo.Module, null);
+            }
+
+            disposedValue = true;
+        }
+    }
+
+    ~GraphicsPipelineBuilder()
+    {
+        Dispose(disposing: false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }

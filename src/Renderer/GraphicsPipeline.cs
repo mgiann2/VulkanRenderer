@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using Silk.NET.Core.Native;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
 
