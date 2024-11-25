@@ -7,15 +7,26 @@ namespace Renderer;
 
 public readonly struct Model
 {
-    public VertexBuffer VertexBuffer { get; init; }
-    public IndexBuffer IndexBuffer { get; init; }
+    public Mesh Mesh { get; init; }
     public Material Material { get; init; }
+
+    public Model(Mesh mesh, Material material)
+    {
+        Mesh = mesh;
+        Material = material;
+    }
 }
 
 public readonly struct Mesh
 {
     public VertexBuffer VertexBuffer { get; init; }
     public IndexBuffer IndexBuffer { get; init; }
+
+    public Mesh(VertexBuffer vertexBuffer, IndexBuffer indexBuffer)
+    {
+        VertexBuffer = vertexBuffer;
+        IndexBuffer = indexBuffer;
+    }
 }
 
 unsafe public partial class VulkanRenderer
@@ -47,8 +58,7 @@ unsafe public partial class VulkanRenderer
 
         return new Model()
         {
-            VertexBuffer = vertexBuffer,
-            IndexBuffer = indexBuffer,
+            Mesh = new Mesh(vertexBuffer, indexBuffer),
             Material = material
         };
 
@@ -175,23 +185,22 @@ unsafe public partial class VulkanRenderer
 
     public void DrawModel(Model model, Matrix4X4<float> modelMatrix)
     {
-        Bind(model.VertexBuffer, geometryCommandBuffers[currentFrame]);
-        Bind(model.IndexBuffer, geometryCommandBuffers[currentFrame]);
+        Bind(model.Mesh.VertexBuffer, geometryCommandBuffers[currentFrame]);
+        Bind(model.Mesh.IndexBuffer, geometryCommandBuffers[currentFrame]);
         BindMaterial(model.Material);
 
         vk.CmdPushConstants(geometryCommandBuffers[currentFrame], geometryPipeline.Layout,
                             ShaderStageFlags.VertexBit, 0, (uint) Unsafe.SizeOf<Matrix4X4<float>>(), &modelMatrix);
-        vk.CmdDrawIndexed(geometryCommandBuffers[currentFrame], model.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        vk.CmdDrawIndexed(geometryCommandBuffers[currentFrame], model.Mesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
     }
 
-    public void UnloadModel(Model model)
+    public void DestroyModel(Model model)
     {
         DestroyMaterial(model.Material);
-        DestroyBuffer(model.IndexBuffer);
-        DestroyBuffer(model.VertexBuffer);
+        DestroyMesh(model.Mesh);
     }
 
-    public void UnloadMesh(Mesh mesh)
+    public void DestroyMesh(Mesh mesh)
     {
         DestroyBuffer(mesh.VertexBuffer);
         DestroyBuffer(mesh.IndexBuffer);

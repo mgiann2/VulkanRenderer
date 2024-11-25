@@ -68,7 +68,7 @@ class Program
                                     ComputerModelPath + ComputerTexturePath + "baseColor.png",
                                     ComputerModelPath + ComputerTexturePath + "normal.png",
                                     ComputerModelPath + ComputerTexturePath + "metallicRoughness.png");
-        modelTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(-90.0f, 0.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
+        modelTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(90.0f, 180.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
 
         lights = new Light[]
         {
@@ -108,12 +108,11 @@ class Program
             AmbientLightStrength = 0.1f
         };
         renderer!.UpdateSceneInfo(sceneInfo);
-        var modelMatrix = modelTransform!.Matrix * Matrix4X4.CreateRotationY(Radians(90.0f) * (float)time);
 
         // start rendering
         renderer.BeginFrame();
 
-        renderer.DrawModel(model, modelMatrix);
+        renderer.DrawModel(model, modelTransform!.Matrix);
 
         renderer.EndFrame();
     }
@@ -121,7 +120,7 @@ class Program
     static void OnClose()
     {
         renderer!.DeviceWaitIdle();
-        renderer!.UnloadModel(model);
+        renderer!.DestroyModel(model);
     }
 
     static void OnKeyDown(IKeyboard keyboard, Key key, int keyCode)

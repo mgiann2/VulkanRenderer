@@ -192,21 +192,7 @@ unsafe public partial class VulkanRenderer
         CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
         // generate quad mesh
-        Vertex[] vertices = new[] 
-        {
-            new Vertex() { pos = new Vector3D<float>(-1.0f, -1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 0.0f) }, // top left
-            new Vertex() { pos = new Vector3D<float>(1.0f, -1.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 0.0f) }, // top right
-            new Vertex() { pos = new Vector3D<float>(-1.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(0.0f, 1.0f) }, // bottom left
-            new Vertex() { pos = new Vector3D<float>(1.0f, 1.0f, 0.0f), texCoord = new Vector2D<float>(1.0f, 1.0f) }, // bottom right
-        };
-
-        ushort[] indices = new ushort[] { 0, 2, 3, 0, 3, 1 };
-
-        screenQuadMesh = new Mesh
-        {
-            VertexBuffer = CreateVertexBuffer(vertices),
-            IndexBuffer = CreateIndexBuffer(indices)
-        };
+        screenQuadMesh = PrimitiveMesh.CreateQuadMesh(this);
 
         // load sphere mesh for lighting
         sphereMesh = LoadMesh(SphereMeshPath);
@@ -1415,8 +1401,8 @@ unsafe public partial class VulkanRenderer : IDisposable
                 vk.FreeMemory(device, sceneInfoBuffersMemory[i], null);
             }
 
-            UnloadMesh(screenQuadMesh);
-            UnloadMesh(sphereMesh);
+            DestroyMesh(screenQuadMesh);
+            DestroyMesh(sphereMesh);
 
             vk.DestroyDevice(device, null);
             vk.DestroyInstance(instance, null);
