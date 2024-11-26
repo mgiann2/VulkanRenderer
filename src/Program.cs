@@ -7,6 +7,7 @@ class Program
 {
     const string ComputerModelPath = "assets/models/retro_computer/";
     const string ComputerTexturePath = "textures/retro_computer_setup_Mat_";
+    const string MaterialsPath = "assets/materials/";
 
     const float MouseSensitivity = 0.1f;
 
@@ -15,8 +16,14 @@ class Program
     static IInputContext? input;
 
     static Camera? camera;
-    static Transform? modelTransform;
-    static Model model;
+    static Transform? computerTransform;
+    static Model computerModel;
+
+    static Model cubeModel;
+    static Transform? cubeTransform;
+
+    static Model quadModel;
+
     static Light[]? lights;
     
     static Vector2D<float> keyboardMovement = Vector2D<float>.Zero;
@@ -64,11 +71,19 @@ class Program
         // load scene objects
         camera = new Camera(new Vector3D<float>(0f, 0.5f, -3f), Vector3D<float>.Zero, Vector3D<float>.One, 45.0f);
 
-        model = renderer!.LoadModel(ComputerModelPath + "scene.gltf",
+        computerModel = renderer!.LoadModel(ComputerModelPath + "scene.gltf",
                                     ComputerModelPath + ComputerTexturePath + "baseColor.png",
                                     ComputerModelPath + ComputerTexturePath + "normal.png",
                                     ComputerModelPath + ComputerTexturePath + "metallicRoughness.png");
-        modelTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(90.0f, 180.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
+        computerTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(90.0f, 180.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
+
+        var paintedMetalMaterial = renderer.CreateMaterial(MaterialsPath + "PaintedMetal/BaseColor.png",
+                                                   MaterialsPath + "PaintedMetal/NormHeight.png",
+                                                   MaterialsPath + "PaintedMetal/ARM.png");
+        cubeModel = new Model(PrimitiveMesh.CreateCubeMesh(renderer), paintedMetalMaterial);
+        cubeTransform = new Transform();
+
+        quadModel = new Model(PrimitiveMesh.CreateQuadMesh(renderer), paintedMetalMaterial);
 
         lights = new Light[]
         {
@@ -112,7 +127,8 @@ class Program
         // start rendering
         renderer.BeginFrame();
 
-        renderer.DrawModel(model, modelTransform!.Matrix);
+        // renderer.DrawModel(computerModel, computerTransform!.Matrix);
+        renderer.DrawModel(cubeModel, cubeTransform!.Matrix);
 
         renderer.EndFrame();
     }
@@ -120,7 +136,7 @@ class Program
     static void OnClose()
     {
         renderer!.DeviceWaitIdle();
-        renderer!.DestroyModel(model);
+        renderer!.DestroyModel(computerModel);
     }
 
     static void OnKeyDown(IKeyboard keyboard, Key key, int keyCode)
