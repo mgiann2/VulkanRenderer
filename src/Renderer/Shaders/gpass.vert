@@ -22,8 +22,8 @@ layout (location = 1) out vec4 outPosition;
 layout (location = 2) out mat3 outTBN;
 
 void main() {
-    outPosition = sceneInfo.cameraProj * sceneInfo.cameraView * pc.model * vec4(inPosition, 1.0);
-    gl_Position = outPosition;
+    outPosition = pc.model * vec4(inPosition, 1.0);
+    gl_Position = sceneInfo.cameraProj * sceneInfo.cameraView * outPosition;
     outTexCoord = inTexCoord;
 
     vec3 T = normalize(vec3(pc.model * vec4(inTangent, 0.0)));
