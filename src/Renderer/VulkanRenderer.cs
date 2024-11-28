@@ -69,6 +69,7 @@ unsafe public partial class VulkanRenderer
     const uint MaxGBufferDescriptorSets = 20;
 
     const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
+    const string SkyboxTexturePath = AssetsPath + "hdris/EveningSkyHDRI.jpg";
 
     readonly string[] validationLayers = new[]
     {
@@ -81,6 +82,7 @@ unsafe public partial class VulkanRenderer
     };
 
     Mesh screenQuadMesh;
+    Mesh skyboxCubeMesh;
     Mesh sphereMesh;
 
     readonly Vk vk;
@@ -113,17 +115,23 @@ unsafe public partial class VulkanRenderer
     DescriptorSetLayout sceneInfoDescriptorSetLayout;
     DescriptorSetLayout materialInfoDescriptorSetLayout;
     DescriptorSetLayout screenTextureDescriptorSetLayout;
+    DescriptorSetLayout skyboxTextureDescriptorSetLayout;
 
     DescriptorPool sceneInfoDescriptorPool;
     DescriptorPool materialInfoDescriptorPool;
     DescriptorPool screenTextureDescriptorPool;
+    DescriptorPool skyboxTextureDescriptorPool;
 
     DescriptorSet[] sceneInfoDescriptorSets;
     DescriptorSet[] screenTextureInfoDescriptorSets;
 
+    Texture skyboxTexture;
+    DescriptorSet[] skyboxTextureDescriptorSets;
+
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
     GraphicsPipeline lightingPipeline;
+    GraphicsPipeline skyboxPipeline;
 
     CommandPool commandPool;
     CommandBuffer[] geometryCommandBuffers;
@@ -166,11 +174,13 @@ unsafe public partial class VulkanRenderer
         sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool();
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxGBufferDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
+        skyboxTextureDescriptorPool = CreateSkyboxTextureDescriptorPool();
 
         // Create descriptor set layouts
         sceneInfoDescriptorSetLayout = CreateSceneInfoDescriptorSetLayout();
         materialInfoDescriptorSetLayout = CreateMaterialInfoDescriptorSetLayout();
         screenTextureDescriptorSetLayout = CreateScreenTexureInfoDescriptorSetLayout();
+        skyboxTextureDescriptorSetLayout = CreateSkyboxTextureDescriptorSetLayout();
 
         // create render passes
         CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
@@ -184,6 +194,7 @@ unsafe public partial class VulkanRenderer
         geometryPipeline = CreateGeometryPipeline();
         compositionPipeline = CreateCompositionPipeline();
         lightingPipeline = CreateLightingPipeline();
+        skyboxPipeline = CreateSkyboxPipeline();
 
         // create commnad pool and buffers
         CreateCommandPool(out commandPool);
@@ -191,8 +202,15 @@ unsafe public partial class VulkanRenderer
 
         CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
+        // Create skybox descriptor sets
+        skyboxTexture = CreateTexture(SkyboxTexturePath);
+        skyboxTextureDescriptorSets = CreateSkyboxTextureDescriptorSets(skyboxTexture.TextureImageView);
+
         // generate quad mesh
         screenQuadMesh = PrimitiveMesh.CreateQuadMesh(this);
+        
+        // generate cube mesh
+        skyboxCubeMesh = PrimitiveMesh.CreateCubeMesh(this);
 
         // load sphere mesh for lighting
         sphereMesh = LoadMesh(SphereMeshPath);
@@ -350,6 +368,17 @@ unsafe public partial class VulkanRenderer
         };
         vk.CmdSetScissor(compositionCommandBuffers[currentFrame], 0, 1, in scissor);
 
+        // draw skybox
+        var skyboxDescriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], skyboxTextureDescriptorSets[currentFrame] };
+        vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, skyboxPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+                skyboxPipeline.Layout, 0, 2, skyboxDescriptorSets, 0, default);
+
+        Bind(skyboxCubeMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
+        Bind(skyboxCubeMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
+        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], skyboxCubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+        // draw gbuffer objects
         var descriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], screenTextureInfoDescriptorSets[currentFrame] };
 
         vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, compositionPipeline.Pipeline);

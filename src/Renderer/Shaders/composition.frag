@@ -20,7 +20,8 @@ void main() {
     vec3 ambient = inAmbientStrength * inAmbientColor;
 
     vec3 result = ambient * fragColor;
-
+    
+    if (result == vec3(0.0)) discard;
     outColor = vec4(result, 1.0);
 }
 

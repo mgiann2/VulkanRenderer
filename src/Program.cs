@@ -128,7 +128,6 @@ class Program
         renderer.BeginFrame();
 
         renderer.DrawModel(computerModel, computerTransform!.Matrix);
-        // renderer.DrawModel(cubeModel, cubeTransform!.Matrix);
 
         renderer.EndFrame();
     }

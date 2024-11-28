@@ -21,6 +21,9 @@ unsafe public partial class VulkanRenderer
     const string LightingVertexShaderFilename = "light.vert.spv";
     const string LightingFragmentShaderFilename = "light.frag.spv";
 
+    const string SkyboxVertexShaderFilename = "skybox.vert.spv";
+    const string SkyboxFragmentShaderFilename = "skybox.frag.spv";
+
     const uint GeometryPassColorAttachmentCount = 4;
     const uint CompositionPassColorAttachmentCount = 1;
 
@@ -73,6 +76,23 @@ unsafe public partial class VulkanRenderer
                        .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
                        .AddDescriptorSetLayout(screenTextureDescriptorSetLayout)
                        .AddPushConstantRange((uint) Unsafe.SizeOf<LightInfo>(), 0, ShaderStageFlags.VertexBit);
+
+        return pipelineBuilder.Build(compositionRenderPass, 0);
+    }
+
+    GraphicsPipeline CreateSkyboxPipeline()
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + SkyboxVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + SkyboxFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(device);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(CompositionPassColorAttachmentCount)
+                       .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(skyboxTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(compositionRenderPass, 0);
     }
@@ -616,5 +636,111 @@ unsafe public partial class VulkanRenderer
             fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
                 vk.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
         }
+    }
+
+    // Skybox Texture Descriptor Set
+    // -----------------------------
+
+    DescriptorSetLayout CreateSkyboxTextureDescriptorSetLayout()
+    {
+        DescriptorSetLayoutBinding colorSamplerBinding = new()
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImmutableSamplers = default,
+            StageFlags = ShaderStageFlags.FragmentBit
+        };
+
+        DescriptorSetLayoutCreateInfo layoutInfo = new()
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &colorSamplerBinding
+        };
+
+        if (vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out var layout) != Result.Success)
+        {
+            throw new Exception("Failed to create descriptor set layout!");
+        }
+
+        return layout;
+    }
+
+    DescriptorPool CreateSkyboxTextureDescriptorPool()
+    {
+        DescriptorPoolSize poolSize = new()
+        {
+            Type = DescriptorType.CombinedImageSampler,
+            DescriptorCount = (uint) MaxFramesInFlight
+        };
+
+        DescriptorPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &poolSize,
+            MaxSets = (uint) MaxFramesInFlight,
+            Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
+        };
+
+        if (vk.CreateDescriptorPool(device, in poolInfo, null, out var descriptorPool) != Result.Success)
+        {
+            throw new Exception("Failed to create descriptor pool!");
+        }
+
+        return descriptorPool;
+    }
+
+    DescriptorSet[] CreateSkyboxTextureDescriptorSets(ImageView skyboxImageView)
+    {
+        var descriptorSets = new DescriptorSet[MaxFramesInFlight];
+
+        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+        Array.Fill(layouts, skyboxTextureDescriptorSetLayout);
+        
+        fixed (DescriptorSetLayout* layoutsPtr = layouts)
+        {
+            DescriptorSetAllocateInfo allocInfo = new()
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                PSetLayouts = layoutsPtr,
+                DescriptorSetCount = (uint) layouts.Length,
+                DescriptorPool = skyboxTextureDescriptorPool
+            };
+            
+            fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+            {
+                if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
+                {
+                    throw new Exception("Failed to allocate descriptor sets!");
+                }
+            }
+        }
+
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            DescriptorImageInfo colorInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = skyboxImageView,
+                Sampler = textureSampler
+            };
+
+            WriteDescriptorSet descriptorWrite = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &colorInfo
+            };
+
+            vk.UpdateDescriptorSets(device, 1, &descriptorWrite, 0, default);
+        }
+
+        return descriptorSets;
     }
 }
