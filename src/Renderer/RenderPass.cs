@@ -126,14 +126,68 @@ unsafe public partial class VulkanRenderer
         vk.DestroyFramebuffer(device, framebuffer, null);
     }
 
-    void CreateCompositionRenderPass(out FramebufferAttachment depthAttachment, out RenderPass renderPass, out Framebuffer[] framebuffers)
+    void CreateCompositionRenderPass(out FramebufferAttachment colorAttachment, out FramebufferAttachment depthAttachment, out RenderPass renderPass, out Framebuffer framebuffer)
     {
         // create attachments
+        colorAttachment = CreateFramebufferAttachment(Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit);
         depthAttachment = CreateFramebufferAttachment(FindDepthFormat(), ImageUsageFlags.DepthStencilAttachmentBit);
 
         RenderPassBuilder renderPassBuilder = new(device);
-        renderPassBuilder.AddColorAttachment(swapchainInfo.ImageFormat, ImageLayout.PresentSrcKhr)
+        renderPassBuilder.AddColorAttachment(colorAttachment.Format, ImageLayout.ShaderReadOnlyOptimal)
                          .SetDepthStencilAttachment(depthAttachment.Format)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+                                        DependencyFlags.None)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+                                        DependencyFlags.None);
+        renderPass = renderPassBuilder.Build();
+
+        // create framebuffer
+        
+        var attachments = new ImageView[]
+        {
+            colorAttachment.ImageView,
+            depthAttachment.ImageView
+        };
+
+        fixed (ImageView* attachmentsPtr = attachments)
+        {
+            FramebufferCreateInfo framebufferInfo = new()
+            {
+                SType = StructureType.FramebufferCreateInfo,
+                PAttachments = attachmentsPtr,
+                RenderPass = renderPass,
+                AttachmentCount = (uint) attachments.Length,
+                Width = swapchainInfo.Extent.Width,
+                Height = swapchainInfo.Extent.Height,
+                Layers = 1
+            };
+
+            if (vk.CreateFramebuffer(device, in framebufferInfo, null, out framebuffer) != Result.Success)
+            {
+                throw new Exception("Failed to create geometry framebuffer!");
+            }
+        }
+    }
+
+    void DestroyCompositionRenderPass(FramebufferAttachment colorAttachment, FramebufferAttachment depthAttachment, RenderPass renderPass, Framebuffer framebuffer)
+    {
+        DestroyFramebufferAttachment(colorAttachment);
+        DestroyFramebufferAttachment(depthAttachment);
+
+        vk.DestroyRenderPass(device, renderPass, null);
+
+        vk.DestroyFramebuffer(device, framebuffer, null);
+    }
+
+    void CreatePostProcessingRenderPass(out RenderPass renderPass, out Framebuffer[] framebuffers)
+    {
+        RenderPassBuilder renderPassBuilder = new(device);
+        renderPassBuilder.AddColorAttachment(swapchainInfo.ImageFormat, ImageLayout.PresentSrcKhr)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
@@ -151,7 +205,7 @@ unsafe public partial class VulkanRenderer
         
         for (int i = 0; i < swapchainImageCount; i++)
         {
-            var attachments = new ImageView[] { swapchainInfo.ImageViews[i], depthAttachment.ImageView };
+            var attachments = new ImageView[] { swapchainInfo.ImageViews[i] };
             FramebufferCreateInfo framebufferInfo = new()
             {
                 SType = StructureType.FramebufferCreateInfo,
@@ -171,10 +225,8 @@ unsafe public partial class VulkanRenderer
         }
     }
 
-    void DestroyCompositionRenderPass(FramebufferAttachment depthAttachment, RenderPass renderPass, Framebuffer[] framebuffers)
+    void DestroyPostProcessingRenderPass(RenderPass renderPass, Framebuffer[] framebuffers)
     {
-        DestroyFramebufferAttachment(depthAttachment);
-
         vk.DestroyRenderPass(device, renderPass, null);
 
         foreach (var framebuffer in framebuffers)

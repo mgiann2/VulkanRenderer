@@ -106,8 +106,12 @@ unsafe public partial class VulkanRenderer
     RenderPass geometryRenderPass;
     Framebuffer geometryFramebuffer;
 
-    FramebufferAttachment depthAttachment;
+    FramebufferAttachment compositionColorAttachment;
+    FramebufferAttachment compositionDepthAttachment;
     RenderPass compositionRenderPass;
+    Framebuffer compositionFramebuffer;
+
+    RenderPass postProcessingRenderPass;
 
     Buffer[] sceneInfoBuffers;
     DeviceMemory[] sceneInfoBuffersMemory;
@@ -115,33 +119,38 @@ unsafe public partial class VulkanRenderer
     DescriptorSetLayout sceneInfoDescriptorSetLayout;
     DescriptorSetLayout materialInfoDescriptorSetLayout;
     DescriptorSetLayout screenTextureDescriptorSetLayout;
-    DescriptorSetLayout skyboxTextureDescriptorSetLayout;
+    DescriptorSetLayout singleTextureDescriptorSetLayout;
 
     DescriptorPool sceneInfoDescriptorPool;
     DescriptorPool materialInfoDescriptorPool;
     DescriptorPool screenTextureDescriptorPool;
-    DescriptorPool skyboxTextureDescriptorPool;
+    DescriptorPool singleTextureDescriptorPool;
 
     DescriptorSet[] sceneInfoDescriptorSets;
     DescriptorSet[] screenTextureInfoDescriptorSets;
+    DescriptorSet[] postProcessTextureDescriptorSets;
 
     Texture skyboxTexture;
     DescriptorSet[] skyboxTextureDescriptorSets;
+
 
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
     GraphicsPipeline lightingPipeline;
     GraphicsPipeline skyboxPipeline;
+    GraphicsPipeline postProcessPipeline;
 
     CommandPool commandPool;
     CommandBuffer[] geometryCommandBuffers;
     CommandBuffer[] compositionCommandBuffers;
+    CommandBuffer[] postProcessingCommandBuffers;
 
     Sampler textureSampler;
 
     Semaphore[] imageAvailableSemaphores;
     Semaphore[] renderFinishedSemaphores;
     Semaphore[] geometryPassFinishedSemaphores;
+    Semaphore[] compositionPassFinishedSemaphores;
     Fence[] inFlightFences;
 
     uint currentFrame;
@@ -174,37 +183,40 @@ unsafe public partial class VulkanRenderer
         sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool();
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxGBufferDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
-        skyboxTextureDescriptorPool = CreateSkyboxTextureDescriptorPool();
+        singleTextureDescriptorPool = CreateSingleTextureDescriptorPool();
 
         // Create descriptor set layouts
         sceneInfoDescriptorSetLayout = CreateSceneInfoDescriptorSetLayout();
         materialInfoDescriptorSetLayout = CreateMaterialInfoDescriptorSetLayout();
         screenTextureDescriptorSetLayout = CreateScreenTexureInfoDescriptorSetLayout();
-        skyboxTextureDescriptorSetLayout = CreateSkyboxTextureDescriptorSetLayout();
+        singleTextureDescriptorSetLayout = CreateSingleTextureDescriptorSetLayout();
 
         // create render passes
         CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
-        CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
+        CreateCompositionRenderPass(out compositionColorAttachment, out compositionDepthAttachment, out compositionRenderPass, out compositionFramebuffer);
+        CreatePostProcessingRenderPass(out postProcessingRenderPass, out swapchainFramebuffers);
 
         // Create composition pass descriptor set
         sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets();
         screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets();
+        postProcessTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionColorAttachment.ImageView);
 
         // Create pipelines
         geometryPipeline = CreateGeometryPipeline();
         compositionPipeline = CreateCompositionPipeline();
         lightingPipeline = CreateLightingPipeline();
         skyboxPipeline = CreateSkyboxPipeline();
+        postProcessPipeline = CreatePostProcessPipeline();
 
         // create commnad pool and buffers
         CreateCommandPool(out commandPool);
-        CreateCommandBuffers(out geometryCommandBuffers, out compositionCommandBuffers);
+        CreateCommandBuffers(out geometryCommandBuffers, out compositionCommandBuffers, out postProcessingCommandBuffers);
 
-        CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
+        CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out compositionPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
 
         // Create skybox descriptor sets
         skyboxTexture = CreateTexture(SkyboxTexturePath);
-        skyboxTextureDescriptorSets = CreateSkyboxTextureDescriptorSets(skyboxTexture.TextureImageView);
+        skyboxTextureDescriptorSets = CreateSingleTextureDescriptorSets(skyboxTexture.TextureImageView);
 
         // generate quad mesh
         screenQuadMesh = PrimitiveMesh.CreateQuadMesh(this);
@@ -240,6 +252,7 @@ unsafe public partial class VulkanRenderer
 
         vk.ResetCommandBuffer(geometryCommandBuffers[currentFrame], CommandBufferResetFlags.None);
         vk.ResetCommandBuffer(compositionCommandBuffers[currentFrame], CommandBufferResetFlags.None);
+        vk.ResetCommandBuffer(postProcessingCommandBuffers[currentFrame], CommandBufferResetFlags.None);
         
         // Begin Geometry Render Pass
         // --------------------------
@@ -330,7 +343,7 @@ unsafe public partial class VulkanRenderer
         {
             SType = StructureType.RenderPassBeginInfo,
             RenderPass = compositionRenderPass,
-            Framebuffer = swapchainFramebuffers[imageIndex],
+            Framebuffer = compositionFramebuffer,
             RenderArea = new()
             {
                 Extent = swapchainInfo.Extent,
@@ -411,6 +424,53 @@ unsafe public partial class VulkanRenderer
             throw new Exception("Failed to end command buffer!");
         }
 
+        // Begin post processing render pass 
+        if (vk.BeginCommandBuffer(postProcessingCommandBuffers[currentFrame], in beginInfo) != Result.Success)
+        {
+            throw new Exception("Failed to begin command buffer!");
+        }
+
+        renderPassInfo = new()
+        {
+            SType = StructureType.RenderPassBeginInfo,
+            RenderPass = postProcessingRenderPass,
+            Framebuffer = swapchainFramebuffers[imageIndex],
+            RenderArea = new()
+            {
+                Extent = swapchainInfo.Extent,
+                Offset = { X = 0, Y = 0 }
+            }
+        };
+
+        clearColors = new ClearValue[] 
+        { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+        };
+
+        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
+        fixed (ClearValue* clearColorsPtr = clearColors)
+            renderPassInfo.PClearValues = clearColorsPtr;
+
+        vk.CmdBeginRenderPass(postProcessingCommandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
+
+        vk.CmdSetViewport(postProcessingCommandBuffers[currentFrame], 0, 1, in viewport);
+        vk.CmdSetScissor(postProcessingCommandBuffers[currentFrame], 0, 1, in scissor);
+
+        var postProcessDescriptorSet = stackalloc[] { postProcessTextureDescriptorSets[currentFrame] };
+        vk.CmdBindPipeline(postProcessingCommandBuffers[currentFrame], PipelineBindPoint.Graphics, postProcessPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(postProcessingCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+                postProcessPipeline.Layout, 0, 1, postProcessDescriptorSet, 0, default);
+
+        Bind(screenQuadMesh.VertexBuffer, postProcessingCommandBuffers[currentFrame]);
+        Bind(screenQuadMesh.IndexBuffer, postProcessingCommandBuffers[currentFrame]);
+        vk.CmdDrawIndexed(postProcessingCommandBuffers[currentFrame], screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+        vk.CmdEndRenderPass(postProcessingCommandBuffers[currentFrame]);
+        if (vk.EndCommandBuffer(postProcessingCommandBuffers[currentFrame]) != Result.Success)
+        {
+            throw new Exception("Failed to end command buffer!");
+        }
+
         // submit geometry commands
         var geomCommandBuffer = geometryCommandBuffers[currentFrame];
         var geomWaitSemaphores = stackalloc[] { imageAvailableSemaphores[currentFrame] };
@@ -437,13 +497,30 @@ unsafe public partial class VulkanRenderer
         // submit composition commands
         var compCommandBuffer = compositionCommandBuffers[currentFrame];
         var compWaitSemaphores = stackalloc[] { geometryPassFinishedSemaphores[currentFrame] };
-        var compSignalSemaphores = stackalloc[] { renderFinishedSemaphores[currentFrame] };
+        var compSignalSemaphores = stackalloc[] { compositionPassFinishedSemaphores[currentFrame] };
 
         submitInfo = submitInfo with
         {
             PWaitSemaphores = compWaitSemaphores,
             PCommandBuffers = &compCommandBuffer,
             PSignalSemaphores = compSignalSemaphores
+        };
+
+        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, default) != Result.Success)
+        {
+            throw new Exception("Failed to submit draw command buffer!");
+        }
+
+        // submit post process commands
+        var postProcessCommandBuffer = postProcessingCommandBuffers[currentFrame];
+        var postProcessWaitSemaphores= stackalloc[] { compositionPassFinishedSemaphores[currentFrame] };
+        var postProcessSignalSemaphores = stackalloc[] { renderFinishedSemaphores[currentFrame] };
+
+        submitInfo = submitInfo with
+        {
+            PWaitSemaphores = postProcessWaitSemaphores,
+            PCommandBuffers = &postProcessCommandBuffer,
+            PSignalSemaphores = postProcessSignalSemaphores
         };
 
         if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
@@ -458,7 +535,7 @@ unsafe public partial class VulkanRenderer
         {
             SType = StructureType.PresentInfoKhr,
             WaitSemaphoreCount = 1,
-            PWaitSemaphores = compSignalSemaphores,
+            PWaitSemaphores = postProcessSignalSemaphores,
             SwapchainCount = 1,
             PSwapchains = swapchains,
             PImageIndices = &idx
@@ -802,12 +879,19 @@ unsafe public partial class VulkanRenderer
 
     void CleanupSwapchain()
     {
+        vk.DestroyPipeline(device, postProcessPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(device, postProcessPipeline.Layout, null);
+        vk.DestroyPipeline(device, skyboxPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(device, skyboxPipeline.Layout, null);
+        vk.DestroyPipeline(device, lightingPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(device, lightingPipeline.Layout, null);
         vk.DestroyPipeline(device, compositionPipeline.Pipeline, null);
         vk.DestroyPipelineLayout(device, compositionPipeline.Layout, null);
         vk.DestroyPipeline(device, geometryPipeline.Pipeline, null);
         vk.DestroyPipelineLayout(device, geometryPipeline.Layout, null);
 
-        DestroyCompositionRenderPass(depthAttachment, compositionRenderPass, swapchainFramebuffers);
+        DestroyPostProcessingRenderPass(postProcessingRenderPass, swapchainFramebuffers);
+        DestroyCompositionRenderPass(compositionColorAttachment, compositionDepthAttachment, compositionRenderPass, compositionFramebuffer);
         DestroyGeomtryRenderPass(gBuffer, geometryRenderPass, geometryFramebuffer);
 
         foreach (var imageView in swapchainInfo.ImageViews)
@@ -834,12 +918,17 @@ unsafe public partial class VulkanRenderer
         CreateSwapchain(out swapchainInfo);
 
         CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
-        CreateCompositionRenderPass(out depthAttachment, out compositionRenderPass, out swapchainFramebuffers);
+        CreateCompositionRenderPass(out compositionColorAttachment, out compositionDepthAttachment, out compositionRenderPass, out compositionFramebuffer);
+        CreatePostProcessingRenderPass(out postProcessingRenderPass, out swapchainFramebuffers);
 
         UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBuffer);
+        UpdateSingleTextureDescriptorSets(postProcessTextureDescriptorSets, compositionColorAttachment.ImageView);
 
         geometryPipeline = CreateGeometryPipeline();
         compositionPipeline = CreateCompositionPipeline();
+        lightingPipeline = CreateLightingPipeline();
+        skyboxPipeline = CreateSkyboxPipeline();
+        postProcessPipeline = CreatePostProcessPipeline();
     }
 
     ShaderModule CreateShaderModule(byte[] shaderCode)
@@ -1094,10 +1183,11 @@ unsafe public partial class VulkanRenderer
         return imageView;
     }
 
-    void CreateCommandBuffers(out CommandBuffer[] geometryCommandBuffers, out CommandBuffer[] compositionCommandBuffers)
+    void CreateCommandBuffers(out CommandBuffer[] geometryCommandBuffers, out CommandBuffer[] compositionCommandBuffers, out CommandBuffer[] postProcessingCommandBuffers)
     {
         geometryCommandBuffers = new CommandBuffer[MaxFramesInFlight];
         compositionCommandBuffers = new CommandBuffer[MaxFramesInFlight];
+        postProcessingCommandBuffers = new CommandBuffer[MaxFramesInFlight];
 
         CommandBufferAllocateInfo allocInfo = new()
         {
@@ -1122,26 +1212,31 @@ unsafe public partial class VulkanRenderer
                 throw new Exception("Failed to allocate command buffers!");
             }
         }
+
+        fixed (CommandBuffer* commandBuffersPtr = postProcessingCommandBuffers)
+        {
+            if (vk.AllocateCommandBuffers(device, in allocInfo, commandBuffersPtr) != Result.Success)
+            {
+                throw new Exception("Failed to allocate command buffers!");
+            }
+        }
     }
 
     void CreateSyncObjects(out Semaphore[] imageAvailableSemaphores,
                            out Semaphore[] geometryPassFinishedSemaphores,
+                           out Semaphore[] compositionPassFinishedSemaphores,
                            out Semaphore[] renderFinishedSemaphores,
                            out Fence[] inFlightFences)
     {
         imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
         geometryPassFinishedSemaphores = new Semaphore[MaxFramesInFlight];
+        compositionPassFinishedSemaphores = new Semaphore[MaxFramesInFlight];
         renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
         inFlightFences = new Fence[MaxFramesInFlight];
 
         SemaphoreCreateInfo semaphoreInfo = new()
         {
             SType = StructureType.SemaphoreCreateInfo
-        };
-
-        FenceCreateInfo gFenceInfo = new()
-        {
-            SType = StructureType.FenceCreateInfo,
         };
 
         FenceCreateInfo fenceInfo = new()
@@ -1154,6 +1249,7 @@ unsafe public partial class VulkanRenderer
         {
             if (vk.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphores[i]) != Result.Success ||
                 vk.CreateSemaphore(device, in semaphoreInfo, null, out geometryPassFinishedSemaphores[i]) != Result.Success ||
+                vk.CreateSemaphore(device, in semaphoreInfo, null, out compositionPassFinishedSemaphores[i]) != Result.Success ||
                 vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphores[i]) != Result.Success ||
                 vk.CreateFence(device, in fenceInfo, null, out inFlightFences[i]) != Result.Success)
             {

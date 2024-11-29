@@ -23,9 +23,13 @@ unsafe public partial class VulkanRenderer
 
     const string SkyboxVertexShaderFilename = "skybox.vert.spv";
     const string SkyboxFragmentShaderFilename = "skybox.frag.spv";
+    
+    const string PostProcessVertexShaderFilename = "postprocess.vert.spv";
+    const string PostProcessFragmentShaderFilename = "postprocess.frag.spv";
 
     const uint GeometryPassColorAttachmentCount = 4;
     const uint CompositionPassColorAttachmentCount = 1;
+    const uint PostProcessColorAttachmentCount = 1;
 
     GraphicsPipeline CreateGeometryPipeline()
     {
@@ -92,9 +96,25 @@ unsafe public partial class VulkanRenderer
                        .SetColorBlendingNone(CompositionPassColorAttachmentCount)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
                        .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
-                       .AddDescriptorSetLayout(skyboxTextureDescriptorSetLayout);
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(compositionRenderPass, 0);
+    }
+
+    GraphicsPipeline CreatePostProcessPipeline()
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + PostProcessVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + PostProcessFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(device);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(PostProcessColorAttachmentCount)
+                       .SetDepthStencilInfo(false, false, CompareOp.Less)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
+
+        return pipelineBuilder.Build(postProcessingRenderPass, 0);
     }
 
     // Scene Info Descriptor Set
@@ -641,7 +661,7 @@ unsafe public partial class VulkanRenderer
     // Skybox Texture Descriptor Set
     // -----------------------------
 
-    DescriptorSetLayout CreateSkyboxTextureDescriptorSetLayout()
+    DescriptorSetLayout CreateSingleTextureDescriptorSetLayout()
     {
         DescriptorSetLayoutBinding colorSamplerBinding = new()
         {
@@ -667,12 +687,12 @@ unsafe public partial class VulkanRenderer
         return layout;
     }
 
-    DescriptorPool CreateSkyboxTextureDescriptorPool()
+    DescriptorPool CreateSingleTextureDescriptorPool()
     {
         DescriptorPoolSize poolSize = new()
         {
             Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = (uint) MaxFramesInFlight
+            DescriptorCount = (uint) MaxFramesInFlight * 2
         };
 
         DescriptorPoolCreateInfo poolInfo = new()
@@ -680,7 +700,7 @@ unsafe public partial class VulkanRenderer
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = (uint) MaxFramesInFlight,
+            MaxSets = (uint) MaxFramesInFlight * 2,
             Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
@@ -692,12 +712,12 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateSkyboxTextureDescriptorSets(ImageView skyboxImageView)
+    DescriptorSet[] CreateSingleTextureDescriptorSets(ImageView imageView)
     {
         var descriptorSets = new DescriptorSet[MaxFramesInFlight];
 
         var layouts = new DescriptorSetLayout[MaxFramesInFlight];
-        Array.Fill(layouts, skyboxTextureDescriptorSetLayout);
+        Array.Fill(layouts, singleTextureDescriptorSetLayout);
         
         fixed (DescriptorSetLayout* layoutsPtr = layouts)
         {
@@ -706,7 +726,7 @@ unsafe public partial class VulkanRenderer
                 SType = StructureType.DescriptorSetAllocateInfo,
                 PSetLayouts = layoutsPtr,
                 DescriptorSetCount = (uint) layouts.Length,
-                DescriptorPool = skyboxTextureDescriptorPool
+                DescriptorPool = singleTextureDescriptorPool
             };
             
             fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
@@ -723,7 +743,7 @@ unsafe public partial class VulkanRenderer
             DescriptorImageInfo colorInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = skyboxImageView,
+                ImageView = imageView,
                 Sampler = textureSampler
             };
 
@@ -743,4 +763,31 @@ unsafe public partial class VulkanRenderer
 
         return descriptorSets;
     }
+
+    void UpdateSingleTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView imageView)
+    {
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            DescriptorImageInfo colorInfo = new()
+            {
+                ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+                ImageView = imageView,
+                Sampler = textureSampler
+            };
+
+            WriteDescriptorSet descriptorWrite = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &colorInfo
+            };
+
+            vk.UpdateDescriptorSets(device, 1, &descriptorWrite, 0, default);        
+        }
+    }
 }
+
