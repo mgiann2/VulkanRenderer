@@ -12,8 +12,8 @@ public class Light
         return new LightInfo
         {
             Model = Matrix4X4.CreateScale(CalculateVolumeSize()) * Matrix4X4.CreateTranslation(Position),
-            Position = new Vector4D<float>(Position, 1.0f),
-            Color = new Vector4D<float>(Color, 1.0f)
+            Position = Position,
+            Color = Color
         };
     }
 

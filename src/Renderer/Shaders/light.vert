@@ -10,8 +10,8 @@ layout (set = 0, binding = 0) uniform SceneInfo {
 // vec4 are used to avoid padding issues
 layout (push_constant) uniform LightData {
     mat4 model;
-    vec4 pos;
-    vec4 color;
+    vec3 pos;
+    vec3 color;
 } light;
 
 layout (location = 0) in vec3 inPos;

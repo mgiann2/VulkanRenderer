@@ -41,19 +41,23 @@ struct SwapchainInfo
     public Format ImageFormat { get; init; }
 }
 
+[StructLayout(LayoutKind.Explicit)]
 public struct SceneInfo
 {
-    public Matrix4X4<float> CameraView;
-    public Matrix4X4<float> CameraProjection;
-    public Vector3D<float> AmbientLightColor;
-    public float AmbientLightStrength;
+    [FieldOffset(0)]public Matrix4X4<float> CameraView;
+    [FieldOffset(64)]public Matrix4X4<float> CameraProjection;
+    [FieldOffset(128)]public Vector3D<float> AmbientLightColor;
+    [FieldOffset(140)]public float AmbientLightStrength;
+    [FieldOffset(144)]public Vector3D<float> DirectionalLightDirection;
+    [FieldOffset(160)]public Vector3D<float> DirectionalLightColor;
 }
 
+[StructLayout(LayoutKind.Explicit)]
 public struct LightInfo
 {
-    public Matrix4X4<float> Model;
-    public Vector4D<float> Position;
-    public Vector4D<float> Color;
+    [FieldOffset(0)]public Matrix4X4<float> Model;
+    [FieldOffset(64)]public Vector3D<float> Position;
+    [FieldOffset(80)]public Vector3D<float> Color;
 }
 
 unsafe public partial class VulkanRenderer
