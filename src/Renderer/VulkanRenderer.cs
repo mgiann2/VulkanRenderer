@@ -13,7 +13,7 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Renderer;
 
-struct QueueFamilyIndices
+public struct QueueFamilyIndices
 {
     public uint? GraphicsFamily { get; set; }
     public uint? PresentFamily { get; set; }
@@ -213,7 +213,7 @@ unsafe public partial class VulkanRenderer
         postProcessPipeline = CreatePostProcessPipeline();
 
         // create commnad pool and buffers
-        CreateCommandPool(out commandPool);
+        commandPool = VulkanHelper.CreateCommandPool(device, FindQueueFamilies(physicalDevice));
         CreateCommandBuffers(out geometryCommandBuffers, out compositionCommandBuffers, out postProcessingCommandBuffers);
 
         CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out compositionPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
@@ -886,23 +886,6 @@ unsafe public partial class VulkanRenderer
         lightingPipeline = CreateLightingPipeline();
         skyboxPipeline = CreateSkyboxPipeline();
         postProcessPipeline = CreatePostProcessPipeline();
-    }
-
-    void CreateCommandPool(out CommandPool commandPool)
-    {
-        var queueFamilyIndices = FindQueueFamilies(physicalDevice);
-
-        CommandPoolCreateInfo poolInfo = new()
-        {
-            SType = StructureType.CommandPoolCreateInfo,
-            Flags = CommandPoolCreateFlags.ResetCommandBufferBit,
-            QueueFamilyIndex = queueFamilyIndices.GraphicsFamily!.Value
-        };
-
-        if (vk.CreateCommandPool(device, in poolInfo, null, out commandPool) != Result.Success)
-        {
-            throw new Exception("Failed to create command pool!");
-        }
     }
 
     Format FindDepthFormat()

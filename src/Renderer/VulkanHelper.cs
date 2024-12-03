@@ -92,4 +92,21 @@ unsafe public static class VulkanHelper
 
         return (uniformBuffers, uniformBuffersMemory);
     }
+
+    public static CommandPool CreateCommandPool(Device device, QueueFamilyIndices queueFamilyIndices)
+    {
+        CommandPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.CommandPoolCreateInfo,
+            Flags = CommandPoolCreateFlags.ResetCommandBufferBit,
+            QueueFamilyIndex = queueFamilyIndices.GraphicsFamily!.Value
+        };
+
+        if (Vk.CreateCommandPool(device, in poolInfo, null, out var commandPool) != Result.Success)
+        {
+            throw new Exception("Failed to create command pool!");
+        }
+
+        return commandPool;
+    }
 }
