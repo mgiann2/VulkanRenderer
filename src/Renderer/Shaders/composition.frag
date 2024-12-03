@@ -30,7 +30,7 @@ void main() {
     vec3 pos = texture(positionSampler, inTexCoord).rgb;
     vec3 aoRoughnessMetalness = texture(aoRoughnessMetalnessSampler, inTexCoord).rgb;
 
-    // discard pixel if there is no color since this implies there is no object to be drawn
+    // discard pixel if the aplha is 0 since this implies there is no object to be drawn
     if (alpha == 0.0)
     {
         discard;

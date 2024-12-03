@@ -20,7 +20,7 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
 
     public GraphicsPipelineBuilder(Device device) 
     {
-        vk = Vk.GetApi();
+        vk = VulkanHelper.Vk;
         this.device = device;
     }
 
@@ -31,8 +31,8 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
             vk.DestroyShaderModule(device, shaderStageInfo.Module, null);
         }
 
-        var vertexShaderModule = CreateShaderModule(vertexShaderCode);
-        var fragmentShaderModule = CreateShaderModule(fragmentShaderCode);
+        var vertexShaderModule = VulkanHelper.CreateShaderModule(device, vertexShaderCode);
+        var fragmentShaderModule = VulkanHelper.CreateShaderModule(device, fragmentShaderCode);
 
         PipelineShaderStageCreateInfo vertexShaderInfo = new()
         {
@@ -297,29 +297,6 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
             unsetInfos.Add("DepthStencilInfo");
 
         return unsetInfos.ToArray();
-    }
-
-    ShaderModule CreateShaderModule(byte[] shaderCode)
-    {
-        ShaderModuleCreateInfo createInfo = new()
-        {
-            SType = StructureType.ShaderModuleCreateInfo,
-            CodeSize = (nuint) shaderCode.Length,
-        };
-
-        ShaderModule shaderModule;
-
-        fixed (byte* shaderCodePtr = shaderCode)
-        {
-            createInfo.PCode = (uint*) shaderCodePtr;
-
-            if (vk.CreateShaderModule(device, in createInfo, null, out shaderModule) != Result.Success)
-            {
-                throw new Exception("Failed to create shader!");
-            }
-        }
-
-        return shaderModule;
     }
 
     protected virtual void Dispose(bool disposing)

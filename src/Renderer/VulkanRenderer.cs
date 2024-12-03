@@ -935,29 +935,6 @@ unsafe public partial class VulkanRenderer
         postProcessPipeline = CreatePostProcessPipeline();
     }
 
-    ShaderModule CreateShaderModule(byte[] shaderCode)
-    {
-        ShaderModuleCreateInfo createInfo = new()
-        {
-            SType = StructureType.ShaderModuleCreateInfo,
-            CodeSize = (nuint) shaderCode.Length,
-        };
-
-        ShaderModule shaderModule;
-
-        fixed (byte* shaderCodePtr = shaderCode)
-        {
-            createInfo.PCode = (uint*) shaderCodePtr;
-
-            if (vk.CreateShaderModule(device, in createInfo, null, out shaderModule) != Result.Success)
-            {
-                throw new Exception("Failed to create shader!");
-            }
-        }
-
-        return shaderModule;
-    }
-
     void CreateUniformBuffers(out Buffer[] uniformBuffers, out DeviceMemory[] uniformBuffersMemory, ulong bufferSize)
     {
         uniformBuffers = new Buffer[MaxFramesInFlight];
@@ -1475,7 +1452,7 @@ unsafe public partial class VulkanRenderer
         return validationLayers.All(availableLayerNames.Contains);
     }
 
-    uint DebugCallback(
+    static uint DebugCallback(
             DebugUtilsMessageSeverityFlagsEXT messageSeverity,
             DebugUtilsMessageTypeFlagsEXT messageType,
             DebugUtilsMessengerCallbackDataEXT* pCallbackData,
