@@ -25,13 +25,13 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0);
 void main() {
     // get needed light variables
     vec3 albedo = texture(albedoSampler, inTexCoord).rgb;
+    float alpha = texture(albedoSampler, inTexCoord).a;
     vec3 normal = texture(normalSampler, inTexCoord).rgb;
     vec3 pos = texture(positionSampler, inTexCoord).rgb;
     vec3 aoRoughnessMetalness = texture(aoRoughnessMetalnessSampler, inTexCoord).rgb;
 
-    // TODO: bug since all black color will be transparent
     // discard pixel if there is no color since this implies there is no object to be drawn
-    if (albedo == vec3(0.0))
+    if (alpha == 0.0)
     {
         discard;
         return;
