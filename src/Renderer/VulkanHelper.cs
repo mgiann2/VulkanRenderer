@@ -142,4 +142,48 @@ unsafe public static class VulkanHelper
 
         return textureSampler;
     }
+
+    public static (Image, DeviceMemory) CreateImage(Device device, PhysicalDevice physicalDevice, 
+            uint width, uint height, Format format, ImageTiling tiling,
+            ImageUsageFlags usage, MemoryPropertyFlags properties)
+    {
+        ImageCreateInfo imageInfo = new()
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Extent = new() { Width = width, Height = height, Depth = 1 },
+            MipLevels = 1,
+            ArrayLayers = 1,
+            Format = format,
+            Tiling = tiling,
+            InitialLayout = ImageLayout.Undefined,
+            Usage = usage,
+            SharingMode = SharingMode.Exclusive,
+            Samples = SampleCountFlags.Count1Bit
+        };
+
+        if (Vk.CreateImage(device, in imageInfo, null, out var image) != Result.Success)
+        {
+            throw new Exception("Failed to create textue image!");
+        }
+
+        MemoryRequirements memRequirements;
+        Vk.GetImageMemoryRequirements(device, image, out memRequirements);
+
+        MemoryAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.MemoryAllocateInfo,
+            AllocationSize = memRequirements.Size,
+            MemoryTypeIndex = VulkanHelper.FindMemoryType(physicalDevice, memRequirements.MemoryTypeBits, properties)
+        };
+
+        if (Vk.AllocateMemory(device, in allocInfo, null, out var imageMemory) != Result.Success)
+        {
+            throw new Exception("Failed to allocate texture image memory!");
+        }
+
+        Vk.BindImageMemory(device, image, imageMemory, 0);
+
+        return (image, imageMemory);
+    }
 }

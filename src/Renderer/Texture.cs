@@ -106,9 +106,9 @@ unsafe public partial class VulkanRenderer
         image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
         vk.UnmapMemory(device, stagingBufferMemory);
 
-        CreateImage((uint)image.Width, (uint)image.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal,
-                     ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit,
-                     out var textureImage, out var textureImageMemory);
+        (var textureImage, var textureImageMemory) = VulkanHelper.CreateImage(device, physicalDevice, 
+                (uint)image.Width, (uint)image.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal,
+                ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
 
         TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
         CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);

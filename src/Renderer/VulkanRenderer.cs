@@ -912,48 +912,6 @@ unsafe public partial class VulkanRenderer
         throw new Exception("Failed to find supported format!");
     }
 
-    void CreateImage(uint width, uint height, Format format, ImageTiling tiling,
-                     ImageUsageFlags usage, MemoryPropertyFlags properties,
-                     out Image image, out DeviceMemory imageMemory)
-    {
-        ImageCreateInfo imageInfo = new()
-        {
-            SType = StructureType.ImageCreateInfo,
-            ImageType = ImageType.Type2D,
-            Extent = new() { Width = width, Height = height, Depth = 1 },
-            MipLevels = 1,
-            ArrayLayers = 1,
-            Format = format,
-            Tiling = tiling,
-            InitialLayout = ImageLayout.Undefined,
-            Usage = usage,
-            SharingMode = SharingMode.Exclusive,
-            Samples = SampleCountFlags.Count1Bit
-        };
-
-        if (vk.CreateImage(device, in imageInfo, null, out image) != Result.Success)
-        {
-            throw new Exception("Failed to create textue image!");
-        }
-
-        MemoryRequirements memRequirements;
-        vk.GetImageMemoryRequirements(device, image, out memRequirements);
-
-        MemoryAllocateInfo allocInfo = new()
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = VulkanHelper.FindMemoryType(physicalDevice, memRequirements.MemoryTypeBits, properties)
-        };
-
-        if (vk.AllocateMemory(device, in allocInfo, null, out imageMemory) != Result.Success)
-        {
-            throw new Exception("Failed to allocate texture image memory!");
-        }
-
-        vk.BindImageMemory(device, image, imageMemory, 0);
-    }
-
     void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout)
     {
         var commandBuffer = BeginSingleTimeCommand();

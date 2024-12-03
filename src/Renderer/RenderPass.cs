@@ -33,10 +33,9 @@ unsafe public partial class VulkanRenderer
             aspectFlags = ImageAspectFlags.DepthBit;
         }
 
-        CreateImage((uint) swapchainInfo.Extent.Width, (uint) swapchainInfo.Extent.Height,
-                    format, ImageTiling.Optimal, usage | ImageUsageFlags.SampledBit,
-                    MemoryPropertyFlags.DeviceLocalBit,
-                    out var image, out var imageMemory);
+        (var image, var imageMemory) = VulkanHelper.CreateImage(device, physicalDevice, 
+                (uint) swapchainInfo.Extent.Width, (uint) swapchainInfo.Extent.Height,
+                format, ImageTiling.Optimal, usage | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
         var imageView = CreateImageView(image, format, aspectFlags);
 
         return new FramebufferAttachment
