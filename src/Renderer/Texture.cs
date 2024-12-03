@@ -98,9 +98,8 @@ unsafe public partial class VulkanRenderer
 
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        CreateBuffer(imageSize, BufferUsageFlags.TransferSrcBit,
-                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                     out stagingBuffer, out stagingBufferMemory);
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, imageSize, BufferUsageFlags.TransferSrcBit,
+                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
         vk.MapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);

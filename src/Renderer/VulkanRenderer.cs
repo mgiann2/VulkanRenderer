@@ -572,39 +572,6 @@ unsafe public partial class VulkanRenderer
         vk.UnmapMemory(device, sceneInfoBuffersMemory[currentFrame]);
     }
 
-    void CreateBuffer(ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties, out Buffer newBuffer, out DeviceMemory newBufferMemory)
-    {
-        BufferCreateInfo bufferInfo = new()
-        {
-            SType = StructureType.BufferCreateInfo,
-            Size = size,
-            Usage = usage,
-            SharingMode = SharingMode.Exclusive
-        };
-
-        if (vk.CreateBuffer(device, in bufferInfo, null, out newBuffer) != Result.Success)
-        {
-            throw new Exception("Failed to create buffer!");
-        }
-
-        MemoryRequirements memoryRequirements;
-        vk.GetBufferMemoryRequirements(device, newBuffer, out memoryRequirements);
-
-        MemoryAllocateInfo allocInfo = new()
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memoryRequirements.Size,
-            MemoryTypeIndex = FindMemoryType(memoryRequirements.MemoryTypeBits, properties)
-        };
-
-        if (vk.AllocateMemory(device, in allocInfo, null, out newBufferMemory) != Result.Success)
-        {
-            throw new Exception("Failed to allocate buffer memory!");
-        }
-
-        vk.BindBufferMemory(device, newBuffer, newBufferMemory, 0);
-    }
-
     void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
     {
         var commandBuffer = BeginSingleTimeCommand();
@@ -613,20 +580,6 @@ unsafe public partial class VulkanRenderer
         vk.CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, in copyRegion);
 
         EndSingleTimeCommand(commandBuffer);
-    }
-
-    uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
-    {
-        PhysicalDeviceMemoryProperties memProperties;
-        vk.GetPhysicalDeviceMemoryProperties(physicalDevice, out memProperties);
-
-        for (int i = 0; i < memProperties.MemoryTypeCount; i++)
-        {
-            if ((typeFilter & (1 << i)) != 0 && (memProperties.MemoryTypes[i].PropertyFlags & properties) == properties)
-                return (uint) i;
-        }
-
-        throw new Exception("Unable to find suitable memory type!");
     }
 
     void OnFramebufferResize(Vector2D<int> framebufferSize)
@@ -942,9 +895,8 @@ unsafe public partial class VulkanRenderer
 
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
-            CreateBuffer(bufferSize, BufferUsageFlags.UniformBufferBit,
-                         MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                         out uniformBuffers[i], out uniformBuffersMemory[i]);
+            (uniformBuffers[i], uniformBuffersMemory[i]) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.UniformBufferBit,
+                         MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
         }
     }
 
@@ -1051,7 +1003,7 @@ unsafe public partial class VulkanRenderer
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = FindMemoryType(memRequirements.MemoryTypeBits, properties)
+            MemoryTypeIndex = VulkanHelper.FindMemoryType(physicalDevice, memRequirements.MemoryTypeBits, properties)
         };
 
         if (vk.AllocateMemory(device, in allocInfo, null, out imageMemory) != Result.Success)

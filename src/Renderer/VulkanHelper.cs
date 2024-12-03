@@ -1,4 +1,5 @@
 using Silk.NET.Vulkan;
+using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Renderer;
 
@@ -27,5 +28,54 @@ unsafe public static class VulkanHelper
         }
 
         return shaderModule;
+    }
+
+    public static (Buffer, DeviceMemory) CreateBuffer(Device device, PhysicalDevice physicalDevice, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
+    {
+        BufferCreateInfo bufferInfo = new()
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = size,
+            Usage = usage,
+            SharingMode = SharingMode.Exclusive
+        };
+
+        if (Vk.CreateBuffer(device, in bufferInfo, null, out var newBuffer) != Result.Success)
+        {
+            throw new Exception("Failed to create buffer!");
+        }
+
+        MemoryRequirements memoryRequirements;
+        Vk.GetBufferMemoryRequirements(device, newBuffer, out memoryRequirements);
+
+        MemoryAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.MemoryAllocateInfo,
+            AllocationSize = memoryRequirements.Size,
+            MemoryTypeIndex = FindMemoryType(physicalDevice, memoryRequirements.MemoryTypeBits, properties)
+        };
+
+        if (Vk.AllocateMemory(device, in allocInfo, null, out var newBufferMemory) != Result.Success)
+        {
+            throw new Exception("Failed to allocate buffer memory!");
+        }
+
+        Vk.BindBufferMemory(device, newBuffer, newBufferMemory, 0);
+
+        return (newBuffer, newBufferMemory);
+    }
+
+    public static uint FindMemoryType(PhysicalDevice physicalDevice, uint typeFilter, MemoryPropertyFlags properties)
+    {
+        PhysicalDeviceMemoryProperties memProperties;
+        Vk.GetPhysicalDeviceMemoryProperties(physicalDevice, out memProperties);
+
+        for (int i = 0; i < memProperties.MemoryTypeCount; i++)
+        {
+            if ((typeFilter & (1 << i)) != 0 && (memProperties.MemoryTypes[i].PropertyFlags & properties) == properties)
+                return (uint) i;
+        }
+
+        throw new Exception("Unable to find suitable memory type!");
     }
 }

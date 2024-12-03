@@ -88,9 +88,8 @@ unsafe public partial class VulkanRenderer
         
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit, 
-                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                     out stagingBuffer, out stagingBufferMemory);
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
+                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
         vk.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
@@ -99,8 +98,8 @@ unsafe public partial class VulkanRenderer
 
         Buffer vertexBuffer;
         DeviceMemory vertexBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
-                     MemoryPropertyFlags.DeviceLocalBit, out vertexBuffer, out vertexBufferMemory);
+        (vertexBuffer, vertexBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
+                     MemoryPropertyFlags.DeviceLocalBit);
 
         CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
 

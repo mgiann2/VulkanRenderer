@@ -26,9 +26,8 @@ unsafe public partial class VulkanRenderer
         
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferSrcBit, 
-                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-                     out stagingBuffer, out stagingBufferMemory);
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
+                     MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
         vk.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
@@ -37,8 +36,8 @@ unsafe public partial class VulkanRenderer
 
         Buffer indexBuffer;
         DeviceMemory indexBufferMemory;
-        CreateBuffer(bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit,
-                     MemoryPropertyFlags.DeviceLocalBit, out indexBuffer, out indexBufferMemory);
+        (indexBuffer, indexBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit,
+                     MemoryPropertyFlags.DeviceLocalBit);
 
         CopyBuffer(stagingBuffer, indexBuffer, bufferSize);
 
