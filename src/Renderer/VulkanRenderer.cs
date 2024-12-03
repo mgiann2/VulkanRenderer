@@ -820,10 +820,10 @@ unsafe public partial class VulkanRenderer
         var swapchainImageViews = new ImageView[swapchainImages.Length];
         for (int i = 0; i < swapchainImages.Length; i++)
         {
-            swapchainImageViews[i] = CreateImageView(swapchainImages[i], swapchainImageFormat, ImageAspectFlags.ColorBit);
+            swapchainImageViews[i] = VulkanHelper.CreateImageView(device, swapchainImages[i], swapchainImageFormat, ImageAspectFlags.ColorBit);
         }
 
-        swapchainInfo =  new SwapchainInfo
+        swapchainInfo = new SwapchainInfo
         {
             KhrSwapchain = khrSwapchain,
             Swapchain = swapchain,
@@ -987,31 +987,6 @@ unsafe public partial class VulkanRenderer
         vk.CmdCopyBufferToImage(commandBuffer, buffer, image, ImageLayout.TransferDstOptimal, 1, in region);
 
         EndSingleTimeCommand(commandBuffer);
-    }
-
-    ImageView CreateImageView(Image image, Format format, ImageAspectFlags aspectFlags)
-    {
-        ImageViewCreateInfo viewInfo = new()
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = image,
-            Format = format,
-            ViewType = ImageViewType.Type2D,
-            SubresourceRange = new()
-            {
-                AspectMask = aspectFlags,
-                BaseMipLevel = 0,
-                LevelCount = 1,
-                BaseArrayLayer = 0,
-                LayerCount = 1
-            }
-        };
-
-        if (vk.CreateImageView(device, in viewInfo, null, out var imageView) != Result.Success)
-        {
-            throw new Exception("Failed to create image view!");
-        }
-        return imageView;
     }
 
     void CreateCommandBuffers(out CommandBuffer[] geometryCommandBuffers, out CommandBuffer[] compositionCommandBuffers, out CommandBuffer[] postProcessingCommandBuffers)

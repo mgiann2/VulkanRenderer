@@ -186,4 +186,29 @@ unsafe public static class VulkanHelper
 
         return (image, imageMemory);
     }
+
+    public static ImageView CreateImageView(Device device, Image image, Format format, ImageAspectFlags aspectFlags)
+    {
+        ImageViewCreateInfo viewInfo = new()
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = image,
+            Format = format,
+            ViewType = ImageViewType.Type2D,
+            SubresourceRange = new()
+            {
+                AspectMask = aspectFlags,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 1
+            }
+        };
+
+        if (Vk.CreateImageView(device, in viewInfo, null, out var imageView) != Result.Success)
+        {
+            throw new Exception("Failed to create image view!");
+        }
+        return imageView;
+    }
 }

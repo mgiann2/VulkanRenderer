@@ -122,6 +122,6 @@ unsafe public partial class VulkanRenderer
 
     ImageView CreateTextureImageView(Image textureImage)
     {
-        return CreateImageView(textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
+        return VulkanHelper.CreateImageView(device, textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
     }
 }
