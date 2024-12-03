@@ -181,7 +181,7 @@ unsafe public partial class VulkanRenderer
         CreateSwapchain(out swapchainInfo);
 
         (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(device, physicalDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
-        CreateTextureSampler(out textureSampler);
+        textureSampler = VulkanHelper.CreateTextureSampler(device, physicalDevice);
 
         // Create descriptor pools
         sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool();
@@ -910,37 +910,6 @@ unsafe public partial class VulkanRenderer
         }
 
         throw new Exception("Failed to find supported format!");
-    }
-
-    void CreateTextureSampler(out Sampler textureSampler)
-    {
-        PhysicalDeviceProperties properties;
-        vk.GetPhysicalDeviceProperties(physicalDevice, out properties);
-
-        SamplerCreateInfo samplerInfo = new()
-        {
-            SType = StructureType.SamplerCreateInfo,
-            MagFilter = Filter.Linear,
-            MinFilter = Filter.Linear,
-            AddressModeU = SamplerAddressMode.Repeat,
-            AddressModeV = SamplerAddressMode.Repeat,
-            AddressModeW = SamplerAddressMode.Repeat,
-            AnisotropyEnable = true,
-            MaxAnisotropy = properties.Limits.MaxSamplerAnisotropy,
-            BorderColor = BorderColor.IntOpaqueBlack,
-            UnnormalizedCoordinates = false,
-            CompareEnable = false,
-            CompareOp = CompareOp.Always,
-            MipmapMode = SamplerMipmapMode.Linear,
-            MipLodBias = 0.0f,
-            MinLod = 0.0f,
-            MaxLod = 0.0f
-        };
-
-        if (vk.CreateSampler(device, in samplerInfo, null, out textureSampler) != Result.Success)
-        {
-            throw new Exception("Failed to create texture sampler!");
-        }
     }
 
     void CreateImage(uint width, uint height, Format format, ImageTiling tiling,

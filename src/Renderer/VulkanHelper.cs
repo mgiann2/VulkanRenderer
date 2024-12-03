@@ -109,4 +109,37 @@ unsafe public static class VulkanHelper
 
         return commandPool;
     }
+
+    public static Sampler CreateTextureSampler(Device device, PhysicalDevice physicalDevice)
+    {
+        PhysicalDeviceProperties properties;
+        Vk.GetPhysicalDeviceProperties(physicalDevice, out properties);
+
+        SamplerCreateInfo samplerInfo = new()
+        {
+            SType = StructureType.SamplerCreateInfo,
+            MagFilter = Filter.Linear,
+            MinFilter = Filter.Linear,
+            AddressModeU = SamplerAddressMode.Repeat,
+            AddressModeV = SamplerAddressMode.Repeat,
+            AddressModeW = SamplerAddressMode.Repeat,
+            AnisotropyEnable = true,
+            MaxAnisotropy = properties.Limits.MaxSamplerAnisotropy,
+            BorderColor = BorderColor.IntOpaqueBlack,
+            UnnormalizedCoordinates = false,
+            CompareEnable = false,
+            CompareOp = CompareOp.Always,
+            MipmapMode = SamplerMipmapMode.Linear,
+            MipLodBias = 0.0f,
+            MinLod = 0.0f,
+            MaxLod = 0.0f
+        };
+
+        if (Vk.CreateSampler(device, in samplerInfo, null, out var textureSampler) != Result.Success)
+        {
+            throw new Exception("Failed to create texture sampler!");
+        }
+
+        return textureSampler;
+    }
 }
