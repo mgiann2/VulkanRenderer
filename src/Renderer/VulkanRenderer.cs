@@ -180,7 +180,7 @@ unsafe public partial class VulkanRenderer
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out swapchainInfo);
 
-        CreateUniformBuffers(out sceneInfoBuffers, out sceneInfoBuffersMemory, (ulong) Unsafe.SizeOf<SceneInfo>());
+        (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(device, physicalDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
         CreateTextureSampler(out textureSampler);
 
         // Create descriptor pools
@@ -886,18 +886,6 @@ unsafe public partial class VulkanRenderer
         lightingPipeline = CreateLightingPipeline();
         skyboxPipeline = CreateSkyboxPipeline();
         postProcessPipeline = CreatePostProcessPipeline();
-    }
-
-    void CreateUniformBuffers(out Buffer[] uniformBuffers, out DeviceMemory[] uniformBuffersMemory, ulong bufferSize)
-    {
-        uniformBuffers = new Buffer[MaxFramesInFlight];
-        uniformBuffersMemory = new DeviceMemory[MaxFramesInFlight];
-
-        for (int i = 0; i < MaxFramesInFlight; i++)
-        {
-            (uniformBuffers[i], uniformBuffersMemory[i]) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.UniformBufferBit,
-                         MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
-        }
     }
 
     void CreateCommandPool(out CommandPool commandPool)

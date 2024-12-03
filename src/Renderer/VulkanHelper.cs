@@ -78,4 +78,18 @@ unsafe public static class VulkanHelper
 
         throw new Exception("Unable to find suitable memory type!");
     }
+
+    public static (Buffer[], DeviceMemory[]) CreateUniformBuffers(Device device, PhysicalDevice physicalDevice, ulong bufferSize, uint maxFramesInFlight)
+    {
+        var uniformBuffers = new Buffer[maxFramesInFlight];
+        var uniformBuffersMemory = new DeviceMemory[maxFramesInFlight];
+
+        for (int i = 0; i < maxFramesInFlight; i++)
+        {
+            (uniformBuffers[i], uniformBuffersMemory[i]) = CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.UniformBufferBit,
+                         MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+        }
+
+        return (uniformBuffers, uniformBuffersMemory);
+    }
 }
