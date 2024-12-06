@@ -211,4 +211,28 @@ unsafe public static class VulkanHelper
         }
         return imageView;
     }
+
+    public static Format FindDepthFormat(PhysicalDevice physicalDevice)
+    {
+        var candidates = new Format[] { Format.D32Sfloat, Format.D32SfloatS8Uint, Format.D24UnormS8Uint };
+        return FindSupportedFormat(physicalDevice, candidates, ImageTiling.Optimal, FormatFeatureFlags.DepthStencilAttachmentBit);
+    }
+
+    private static Format FindSupportedFormat(PhysicalDevice physicalDevice, Format[] candidates, ImageTiling tiling, FormatFeatureFlags features)
+    {
+        foreach (var format in candidates)
+        {
+            Vk.GetPhysicalDeviceFormatProperties(physicalDevice, format, out FormatProperties props);
+            if (tiling == ImageTiling.Linear && (props.LinearTilingFeatures & features) == features)
+            {
+                return format;
+            }
+            else if (tiling == ImageTiling.Optimal && (props.OptimalTilingFeatures & features) == features)
+            {
+                return format;
+            }
+        }
+
+        throw new Exception("Failed to find supported format!");
+    }
 }
