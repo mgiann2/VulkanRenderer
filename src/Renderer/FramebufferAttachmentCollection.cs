@@ -74,6 +74,7 @@ unsafe public class GBufferAttachments : IFramebufferAttachmentCollection
 unsafe public class CompositionAttachments : IFramebufferAttachmentCollection
 {
     public ImageAttachment Color { get; }
+    public ImageAttachment ThresholdedColor { get; }
     public ImageAttachment Depth { get; }
 
     private bool disposedValue;
@@ -82,7 +83,7 @@ unsafe public class CompositionAttachments : IFramebufferAttachmentCollection
     {
         get 
         {
-            return new IFramebufferAttachment[] { Color };
+            return new IFramebufferAttachment[] { Color, ThresholdedColor };
         }
     }
     public IFramebufferAttachment DepthAttachment { get => Depth; }
@@ -90,13 +91,14 @@ unsafe public class CompositionAttachments : IFramebufferAttachmentCollection
     {
         get
         {
-            return new ImageView[] { Color.ImageView, Depth.ImageView };
+            return new ImageView[] { Color.ImageView, ThresholdedColor.ImageView, Depth.ImageView };
         }
     }
 
     public CompositionAttachments(Device device, PhysicalDevice physicalDevice, Extent2D swapchainImageExtent)
     {
         Color = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        ThresholdedColor = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         Depth = new ImageAttachment(device, physicalDevice, VulkanHelper.FindDepthFormat(physicalDevice), ImageUsageFlags.DepthStencilAttachmentBit, swapchainImageExtent);
     }
 
@@ -106,6 +108,7 @@ unsafe public class CompositionAttachments : IFramebufferAttachmentCollection
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
             Color.Dispose();
+            ThresholdedColor.Dispose();
             Depth.Dispose();
 
             disposedValue = true;

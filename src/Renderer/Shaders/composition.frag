@@ -12,7 +12,8 @@ layout (location = 3) in float inAmbientStrength;
 layout (location = 4) in vec3 inDirectionalLightDir;
 layout (location = 5) in vec3 inDirectionalLightColor;
 
-layout(location = 0) out vec4 outColor;
+layout (location = 0) out vec4 outColor;
+layout (location = 1) out vec4 outThresholdColor;
 
 const float PI = 3.14159265359;
 const float SURFACE_REFLECTION = 0.04;
@@ -70,6 +71,12 @@ void main() {
     vec3 ambient = albedo * ao * inAmbientStrength * inAmbientColor;
 
     outColor = vec4(ambient + outLight, 1.0);
+    
+    float brighness = dot(outColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    if (brighness > 1.0)
+        outThresholdColor = vec4(outColor.rgb, 1.0);
+    else
+        outThresholdColor = vec4(0.0, 0.0, 0.0, 1.0);
 }
 
 float NormalDistribution(vec3 N, vec3 H, float roughness) {

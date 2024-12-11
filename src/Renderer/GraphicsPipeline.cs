@@ -28,7 +28,7 @@ unsafe public partial class VulkanRenderer
     const string PostProcessFragmentShaderFilename = "postprocess.frag.spv";
 
     const uint GeometryPassColorAttachmentCount = 4;
-    const uint CompositionPassColorAttachmentCount = 1;
+    const uint CompositionPassColorAttachmentCount = 2;
     const uint PostProcessColorAttachmentCount = 1;
 
     GraphicsPipeline CreateGeometryPipeline(RenderPass renderPass)

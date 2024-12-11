@@ -822,6 +822,7 @@ unsafe public partial class VulkanRenderer
 
         RenderPassBuilder renderPassBuilder = new(Device);
         renderPassBuilder.AddColorAttachment(compositionAttachments.Color.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(compositionAttachments.ThresholdedColor.Format, ImageLayout.ShaderReadOnlyOptimal)
                          .SetDepthStencilAttachment(compositionAttachments.Depth.Format)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
@@ -838,6 +839,7 @@ unsafe public partial class VulkanRenderer
 
         var clearColors = new ClearValue[] 
         { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
             new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
             new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
         };
