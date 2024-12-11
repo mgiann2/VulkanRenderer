@@ -31,7 +31,7 @@ unsafe public partial class VulkanRenderer
     const uint CompositionPassColorAttachmentCount = 1;
     const uint PostProcessColorAttachmentCount = 1;
 
-    GraphicsPipeline CreateGeometryPipeline()
+    GraphicsPipeline CreateGeometryPipeline(RenderPass renderPass)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + GeometryVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + GeometryFragmentShaderFilename);
@@ -46,10 +46,10 @@ unsafe public partial class VulkanRenderer
                        .AddDescriptorSetLayout(materialInfoDescriptorSetLayout)
                        .AddPushConstantRange((uint) Unsafe.SizeOf<Matrix4X4<float>>(), 0, ShaderStageFlags.VertexBit);
 
-        return pipelineBuilder.Build(geometryRenderPass, 0);
+        return pipelineBuilder.Build(renderPass, 0);
     }
 
-    GraphicsPipeline CreateCompositionPipeline()
+    GraphicsPipeline CreateCompositionPipeline(RenderPass renderPass)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + CompositionVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + CompositionFragmentShaderFilename);
@@ -63,10 +63,10 @@ unsafe public partial class VulkanRenderer
                        .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
                        .AddDescriptorSetLayout(screenTextureDescriptorSetLayout);
 
-        return pipelineBuilder.Build(compositionRenderPass, 0);
+        return pipelineBuilder.Build(renderPass, 0);
     }
 
-    GraphicsPipeline CreateLightingPipeline()
+    GraphicsPipeline CreateLightingPipeline(RenderPass renderPass)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + LightingVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + LightingFragmentShaderFilename);
@@ -81,10 +81,10 @@ unsafe public partial class VulkanRenderer
                        .AddDescriptorSetLayout(screenTextureDescriptorSetLayout)
                        .AddPushConstantRange((uint) Unsafe.SizeOf<LightInfo>(), 0, ShaderStageFlags.VertexBit);
 
-        return pipelineBuilder.Build(compositionRenderPass, 0);
+        return pipelineBuilder.Build(renderPass, 0);
     }
 
-    GraphicsPipeline CreateSkyboxPipeline()
+    GraphicsPipeline CreateSkyboxPipeline(RenderPass renderPass)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + SkyboxVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + SkyboxFragmentShaderFilename);
@@ -98,10 +98,10 @@ unsafe public partial class VulkanRenderer
                        .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
-        return pipelineBuilder.Build(compositionRenderPass, 0);
+        return pipelineBuilder.Build(renderPass, 0);
     }
 
-    GraphicsPipeline CreatePostProcessPipeline()
+    GraphicsPipeline CreatePostProcessPipeline(RenderPass renderPass)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + PostProcessVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + PostProcessFragmentShaderFilename);
@@ -114,7 +114,7 @@ unsafe public partial class VulkanRenderer
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
-        return pipelineBuilder.Build(postProcessingRenderPass, 0);
+        return pipelineBuilder.Build(renderPass, 0);
     }
 
     // Scene Info Descriptor Set
@@ -470,7 +470,7 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateScreenTextureInfoDescriptorSets()
+    DescriptorSet[] CreateScreenTextureInfoDescriptorSets(ImageView albedo, ImageView normal, ImageView aoRoughnessMetalness, ImageView position)
     {
         var descriptorSets = new DescriptorSet[MaxFramesInFlight];
 
@@ -501,28 +501,28 @@ unsafe public partial class VulkanRenderer
             DescriptorImageInfo albedoInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Albedo.ImageView,
+                ImageView = albedo,
                 Sampler = textureSampler
             };
 
             DescriptorImageInfo normalInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Normal.ImageView,
+                ImageView = normal,
                 Sampler = textureSampler
             };
 
             DescriptorImageInfo aoRoughnessMetalnessInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Specular.ImageView,
+                ImageView = aoRoughnessMetalness,
                 Sampler = textureSampler
             };
 
             DescriptorImageInfo positionInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Position.ImageView,
+                ImageView = position,
                 Sampler = textureSampler
             };
 
@@ -577,35 +577,35 @@ unsafe public partial class VulkanRenderer
         return descriptorSets;
     }
 
-    void UpdateScreenTextureDescriptorSets(DescriptorSet[] descriptorSets, GBuffer gBuffer)
+    void UpdateScreenTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView albedo, ImageView normal, ImageView aoRoughnessMetalness, ImageView position)
     {
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
             DescriptorImageInfo albedoInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Albedo.ImageView,
+                ImageView = albedo,
                 Sampler = textureSampler
             };
 
             DescriptorImageInfo normalInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Normal.ImageView,
+                ImageView = normal,
                 Sampler = textureSampler
             };
 
             DescriptorImageInfo aoRoughnessMetalnessInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Specular.ImageView,
+                ImageView = aoRoughnessMetalness,
                 Sampler = textureSampler
             };
 
             DescriptorImageInfo positionInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = gBuffer.Position.ImageView,
+                ImageView = position,
                 Sampler = textureSampler
             };
 

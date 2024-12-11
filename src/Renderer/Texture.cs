@@ -66,7 +66,9 @@ unsafe public partial class VulkanRenderer
 
     public void BindMaterial(Material material)
     {
-        vk.CmdBindDescriptorSets(geometryCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        var geometryCommandBuffer = geometryRenderStage.GetCommandBuffer(currentFrame);
+
+        vk.CmdBindDescriptorSets(geometryCommandBuffer, PipelineBindPoint.Graphics,
                                  geometryPipeline.Layout, 1, 1, in material.DescriptorSets[currentFrame], 0, default);
     }
 

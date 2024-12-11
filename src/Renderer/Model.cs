@@ -185,13 +185,15 @@ unsafe public partial class VulkanRenderer
 
     public void DrawModel(Model model, Matrix4X4<float> modelMatrix)
     {
-        Bind(model.Mesh.VertexBuffer, geometryCommandBuffers[currentFrame]);
-        Bind(model.Mesh.IndexBuffer, geometryCommandBuffers[currentFrame]);
+        var geometryCommandBuffer = geometryRenderStage.GetCommandBuffer(currentFrame);
+
+        Bind(model.Mesh.VertexBuffer, geometryCommandBuffer);
+        Bind(model.Mesh.IndexBuffer, geometryCommandBuffer);
         BindMaterial(model.Material);
 
-        vk.CmdPushConstants(geometryCommandBuffers[currentFrame], geometryPipeline.Layout,
+        vk.CmdPushConstants(geometryCommandBuffer, geometryPipeline.Layout,
                             ShaderStageFlags.VertexBit, 0, (uint) Unsafe.SizeOf<Matrix4X4<float>>(), &modelMatrix);
-        vk.CmdDrawIndexed(geometryCommandBuffers[currentFrame], model.Mesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        vk.CmdDrawIndexed(geometryCommandBuffer, model.Mesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
     }
 
     public void DestroyModel(Model model)

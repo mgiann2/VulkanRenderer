@@ -104,18 +104,14 @@ unsafe public partial class VulkanRenderer
     Queue presentQueue;
 
     SwapchainInfo swapchainInfo;
-    Framebuffer[] swapchainFramebuffers;
 
-    GBuffer gBuffer;
-    RenderPass geometryRenderPass;
-    Framebuffer geometryFramebuffer;
+    GBufferAttachments gBufferAttachments;
+    CompositionAttachments compositionAttachments;
+    SwapChainAttachment[] swapChainAttachments;
 
-    FramebufferAttachment compositionColorAttachment;
-    FramebufferAttachment compositionDepthAttachment;
-    RenderPass compositionRenderPass;
-    Framebuffer compositionFramebuffer;
-
-    RenderPass postProcessingRenderPass;
+    RenderStage geometryRenderStage;
+    RenderStage compositionRenderStage;
+    RenderStage postProcessRenderStage;
 
     Buffer[] sceneInfoBuffers;
     DeviceMemory[] sceneInfoBuffersMemory;
@@ -137,7 +133,6 @@ unsafe public partial class VulkanRenderer
     Texture skyboxTexture;
     DescriptorSet[] skyboxTextureDescriptorSets;
 
-
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
     GraphicsPipeline lightingPipeline;
@@ -152,9 +147,6 @@ unsafe public partial class VulkanRenderer
     Sampler textureSampler;
 
     Semaphore[] imageAvailableSemaphores;
-    Semaphore[] renderFinishedSemaphores;
-    Semaphore[] geometryPassFinishedSemaphores;
-    Semaphore[] compositionPassFinishedSemaphores;
     Fence[] inFlightFences;
 
     uint currentFrame;
@@ -180,6 +172,8 @@ unsafe public partial class VulkanRenderer
         CreateLogicalDevice(out device, out graphicsQueue, out presentQueue);
         CreateSwapchain(out swapchainInfo);
 
+        commandPool = VulkanHelper.CreateCommandPool(device, FindQueueFamilies(physicalDevice));
+
         (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(device, physicalDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
         textureSampler = VulkanHelper.CreateTextureSampler(device, physicalDevice);
 
@@ -195,28 +189,30 @@ unsafe public partial class VulkanRenderer
         screenTextureDescriptorSetLayout = CreateScreenTexureInfoDescriptorSetLayout();
         singleTextureDescriptorSetLayout = CreateSingleTextureDescriptorSetLayout();
 
-        // create render passes
-        CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
-        CreateCompositionRenderPass(out compositionColorAttachment, out compositionDepthAttachment, out compositionRenderPass, out compositionFramebuffer);
-        CreatePostProcessingRenderPass(out postProcessingRenderPass, out swapchainFramebuffers);
+        // create render stages
+        (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
+        (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
+        (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
 
         // Create composition pass descriptor set
         sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets();
-        screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets();
-        postProcessTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionColorAttachment.ImageView);
+        screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments.Albedo.ImageView,
+                                                                                gBufferAttachments.Normal.ImageView,
+                                                                                gBufferAttachments.AoRoughnessMetalness.ImageView,
+                                                                                gBufferAttachments.Position.ImageView);
+        postProcessTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView);
 
         // Create pipelines
-        geometryPipeline = CreateGeometryPipeline();
-        compositionPipeline = CreateCompositionPipeline();
-        lightingPipeline = CreateLightingPipeline();
-        skyboxPipeline = CreateSkyboxPipeline();
-        postProcessPipeline = CreatePostProcessPipeline();
+        geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
+        compositionPipeline = CreateCompositionPipeline(compositionRenderStage.RenderPass);
+        lightingPipeline = CreateLightingPipeline(compositionRenderStage.RenderPass);
+        skyboxPipeline = CreateSkyboxPipeline(compositionRenderStage.RenderPass);
+        postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
 
         // create commnad pool and buffers
-        commandPool = VulkanHelper.CreateCommandPool(device, FindQueueFamilies(physicalDevice));
         CreateCommandBuffers(out geometryCommandBuffers, out compositionCommandBuffers, out postProcessingCommandBuffers);
 
-        CreateSyncObjects(out imageAvailableSemaphores, out geometryPassFinishedSemaphores, out compositionPassFinishedSemaphores, out renderFinishedSemaphores, out inFlightFences);
+        CreateSyncObjects(out imageAvailableSemaphores, out inFlightFences);
 
         // Create skybox descriptor sets
         skyboxTexture = CreateTexture(SkyboxTexturePath);
@@ -254,70 +250,18 @@ unsafe public partial class VulkanRenderer
 
         vk.ResetFences(device, 1, ref inFlightFences[currentFrame]);
 
-        vk.ResetCommandBuffer(geometryCommandBuffers[currentFrame], CommandBufferResetFlags.None);
-        vk.ResetCommandBuffer(compositionCommandBuffers[currentFrame], CommandBufferResetFlags.None);
-        vk.ResetCommandBuffer(postProcessingCommandBuffers[currentFrame], CommandBufferResetFlags.None);
-        
+        geometryRenderStage.ResetCommandBuffer(currentFrame);
+        compositionRenderStage.ResetCommandBuffer(currentFrame);
+        postProcessRenderStage.ResetCommandBuffer(currentFrame);
+
         // Begin Geometry Render Pass
         // --------------------------
-        CommandBufferBeginInfo beginInfo = new()
-        {
-            SType = StructureType.CommandBufferBeginInfo,
-        };
+        var geometryCommandBuffer = geometryRenderStage.GetCommandBuffer(currentFrame);
+        geometryRenderStage.BeginCommands(currentFrame, 0);
+        
+        vk.CmdBindPipeline(geometryCommandBuffer, PipelineBindPoint.Graphics, geometryPipeline.Pipeline);
 
-        if (vk.BeginCommandBuffer(geometryCommandBuffers[currentFrame], in beginInfo) != Result.Success)
-        {
-            throw new Exception("Failed to begin command buffer!");
-        }
-
-        RenderPassBeginInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = geometryRenderPass,
-            Framebuffer = geometryFramebuffer,
-            RenderArea = new()
-            {
-                Extent = swapchainInfo.Extent,
-                Offset = { X = 0, Y = 0 }
-            }
-        };
-
-        ClearValue[] clearColors = new ClearValue[] 
-        { 
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 0.0f } },
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
-        };
-
-        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
-        fixed (ClearValue* clearColorsPtr = clearColors)
-            renderPassInfo.PClearValues = clearColorsPtr;
-
-        vk.CmdBeginRenderPass(geometryCommandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
-
-        vk.CmdBindPipeline(geometryCommandBuffers[currentFrame], PipelineBindPoint.Graphics, geometryPipeline.Pipeline);
-
-        Viewport viewport = new()
-        {
-            X = 0.0f,
-            Y = 0.0f,
-            Width = swapchainInfo.Extent.Width,
-            Height = swapchainInfo.Extent.Height,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f,
-        };
-        vk.CmdSetViewport(geometryCommandBuffers[currentFrame], 0, 1, in viewport);
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = swapchainInfo.Extent
-        };
-        vk.CmdSetScissor(geometryCommandBuffers[currentFrame], 0, 1, in scissor);
-
-        vk.CmdBindDescriptorSets(geometryCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        vk.CmdBindDescriptorSets(geometryCommandBuffer, PipelineBindPoint.Graphics,
                                  geometryPipeline.Layout, 0, 1, in sceneInfoDescriptorSets[currentFrame], 0, default);
     }
 
@@ -326,213 +270,82 @@ unsafe public partial class VulkanRenderer
         if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new one!");
 
         // End geometry render pass
-        vk.CmdEndRenderPass(geometryCommandBuffers[currentFrame]);
-        if (vk.EndCommandBuffer(geometryCommandBuffers[currentFrame]) != Result.Success)
-        {
-            throw new Exception("Failed to end command buffer!");
-        }
-
+        geometryRenderStage.EndCommands(currentFrame);
+        
         // Begin composition render pass
-        CommandBufferBeginInfo beginInfo = new()
-        {
-            SType = StructureType.CommandBufferBeginInfo,
-        };
-
-        if (vk.BeginCommandBuffer(compositionCommandBuffers[currentFrame], in beginInfo) != Result.Success)
-        {
-            throw new Exception("Failed to begin command buffer!");
-        }
-
-        RenderPassBeginInfo renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = compositionRenderPass,
-            Framebuffer = compositionFramebuffer,
-            RenderArea = new()
-            {
-                Extent = swapchainInfo.Extent,
-                Offset = { X = 0, Y = 0 }
-            }
-        };
-
-        var clearColors = new ClearValue[] 
-        { 
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
-        };
-
-        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
-        fixed (ClearValue* clearColorsPtr = clearColors)
-            renderPassInfo.PClearValues = clearColorsPtr;
-
-        vk.CmdBeginRenderPass(compositionCommandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
-
-        Viewport viewport = new()
-        {
-            X = 0.0f,
-            Y = 0.0f,
-            Width = swapchainInfo.Extent.Width,
-            Height = swapchainInfo.Extent.Height,
-            MinDepth = 0.0f,
-            MaxDepth = 1.0f,
-        };
-        vk.CmdSetViewport(compositionCommandBuffers[currentFrame], 0, 1, in viewport);
-
-        Rect2D scissor = new()
-        {
-            Offset = { X = 0, Y = 0 },
-            Extent = swapchainInfo.Extent
-        };
-        vk.CmdSetScissor(compositionCommandBuffers[currentFrame], 0, 1, in scissor);
+        // -----------------------------
+        compositionRenderStage.BeginCommands(currentFrame, 0);
+        var compositionCommandBuffer = compositionRenderStage.GetCommandBuffer(currentFrame);
 
         // draw skybox
         var skyboxDescriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], skyboxTextureDescriptorSets[currentFrame] };
-        vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, skyboxPipeline.Pipeline);
-        vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, skyboxPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 skyboxPipeline.Layout, 0, 2, skyboxDescriptorSets, 0, default);
 
-        Bind(skyboxCubeMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
-        Bind(skyboxCubeMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
-        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], skyboxCubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        Bind(skyboxCubeMesh.VertexBuffer, compositionCommandBuffer);
+        Bind(skyboxCubeMesh.IndexBuffer, compositionCommandBuffer);
+        vk.CmdDrawIndexed(compositionCommandBuffer, skyboxCubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
         // draw gbuffer objects
         var descriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], screenTextureInfoDescriptorSets[currentFrame] };
 
-        vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
-        vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 compositionPipeline.Layout, 0, 2, descriptorSets, 0, default);
 
-        Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
-        Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
-        vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffer);
+        Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffer);
+        vk.CmdDrawIndexed(compositionCommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
         // draw point lights
-        vk.CmdBindPipeline(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics, lightingPipeline.Pipeline);
-        vk.CmdBindDescriptorSets(compositionCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, lightingPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 lightingPipeline.Layout, 0, 2, descriptorSets, 0, default);
-        Bind(sphereMesh.VertexBuffer, compositionCommandBuffers[currentFrame]);
-        Bind(sphereMesh.IndexBuffer, compositionCommandBuffers[currentFrame]);
+        Bind(sphereMesh.VertexBuffer, compositionCommandBuffer);
+        Bind(sphereMesh.IndexBuffer, compositionCommandBuffer);
         foreach (var light in Lights)
         {
             var lightInfo = light.ToInfo();
-            vk.CmdPushConstants(compositionCommandBuffers[currentFrame], lightingPipeline.Layout,
+            vk.CmdPushConstants(compositionCommandBuffer, lightingPipeline.Layout,
                                 ShaderStageFlags.VertexBit, 0,
                                 (uint) Unsafe.SizeOf<LightInfo>(), &lightInfo);
 
-            vk.CmdDrawIndexed(compositionCommandBuffers[currentFrame], sphereMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+            vk.CmdDrawIndexed(compositionCommandBuffer, sphereMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
         }
 
-        vk.CmdEndRenderPass(compositionCommandBuffers[currentFrame]);
-        if (vk.EndCommandBuffer(compositionCommandBuffers[currentFrame]) != Result.Success)
-        {
-            throw new Exception("Failed to end command buffer!");
-        }
+        compositionRenderStage.EndCommands(currentFrame);
 
-        // Begin post processing render pass 
-        if (vk.BeginCommandBuffer(postProcessingCommandBuffers[currentFrame], in beginInfo) != Result.Success)
-        {
-            throw new Exception("Failed to begin command buffer!");
-        }
-
-        renderPassInfo = new()
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = postProcessingRenderPass,
-            Framebuffer = swapchainFramebuffers[imageIndex],
-            RenderArea = new()
-            {
-                Extent = swapchainInfo.Extent,
-                Offset = { X = 0, Y = 0 }
-            }
-        };
-
-        clearColors = new ClearValue[] 
-        { 
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
-        };
-
-        renderPassInfo.ClearValueCount = (uint) clearColors.Length;
-        fixed (ClearValue* clearColorsPtr = clearColors)
-            renderPassInfo.PClearValues = clearColorsPtr;
-
-        vk.CmdBeginRenderPass(postProcessingCommandBuffers[currentFrame], in renderPassInfo, SubpassContents.Inline);
-
-        vk.CmdSetViewport(postProcessingCommandBuffers[currentFrame], 0, 1, in viewport);
-        vk.CmdSetScissor(postProcessingCommandBuffers[currentFrame], 0, 1, in scissor);
+        // Begin post processing render pass
+        // ---------------------------------
+        postProcessRenderStage.BeginCommands(currentFrame, imageIndex);
+        var postProcessCommandBuffer = postProcessRenderStage.GetCommandBuffer(currentFrame);
 
         var postProcessDescriptorSet = stackalloc[] { postProcessTextureDescriptorSets[currentFrame] };
-        vk.CmdBindPipeline(postProcessingCommandBuffers[currentFrame], PipelineBindPoint.Graphics, postProcessPipeline.Pipeline);
-        vk.CmdBindDescriptorSets(postProcessingCommandBuffers[currentFrame], PipelineBindPoint.Graphics,
+        vk.CmdBindPipeline(postProcessCommandBuffer, PipelineBindPoint.Graphics, postProcessPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(postProcessCommandBuffer, PipelineBindPoint.Graphics,
                 postProcessPipeline.Layout, 0, 1, postProcessDescriptorSet, 0, default);
 
-        Bind(screenQuadMesh.VertexBuffer, postProcessingCommandBuffers[currentFrame]);
-        Bind(screenQuadMesh.IndexBuffer, postProcessingCommandBuffers[currentFrame]);
-        vk.CmdDrawIndexed(postProcessingCommandBuffers[currentFrame], screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        Bind(screenQuadMesh.VertexBuffer, postProcessCommandBuffer);
+        Bind(screenQuadMesh.IndexBuffer, postProcessCommandBuffer);
+        vk.CmdDrawIndexed(postProcessCommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
-        vk.CmdEndRenderPass(postProcessingCommandBuffers[currentFrame]);
-        if (vk.EndCommandBuffer(postProcessingCommandBuffers[currentFrame]) != Result.Success)
-        {
-            throw new Exception("Failed to end command buffer!");
-        }
+        postProcessRenderStage.EndCommands(currentFrame);
 
         // submit geometry commands
-        var geomCommandBuffer = geometryCommandBuffers[currentFrame];
-        var geomWaitSemaphores = stackalloc[] { imageAvailableSemaphores[currentFrame] };
-        var waitStages = stackalloc[] { PipelineStageFlags.ColorAttachmentOutputBit };
-        var geomSignalSemaphores = stackalloc[] { geometryPassFinishedSemaphores[currentFrame] };
-
-        SubmitInfo submitInfo = new()
-        {
-            SType = StructureType.SubmitInfo,
-            WaitSemaphoreCount = 1,
-            PWaitSemaphores = geomWaitSemaphores,
-            PWaitDstStageMask = waitStages,
-            CommandBufferCount = 1,
-            PCommandBuffers = &geomCommandBuffer,
-            SignalSemaphoreCount = 1,
-            PSignalSemaphores = geomSignalSemaphores
-        };
-
-        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, default) != Result.Success)
-        {
-            throw new Exception("Failed to submit draw command buffer!");
-        }
-
+        var geomWaitSemaphores = new Semaphore[] { imageAvailableSemaphores[currentFrame] };
+        geometryRenderStage.SubmitCommands(graphicsQueue, currentFrame, geomWaitSemaphores);
+        
         // submit composition commands
-        var compCommandBuffer = compositionCommandBuffers[currentFrame];
-        var compWaitSemaphores = stackalloc[] { geometryPassFinishedSemaphores[currentFrame] };
-        var compSignalSemaphores = stackalloc[] { compositionPassFinishedSemaphores[currentFrame] };
-
-        submitInfo = submitInfo with
-        {
-            PWaitSemaphores = compWaitSemaphores,
-            PCommandBuffers = &compCommandBuffer,
-            PSignalSemaphores = compSignalSemaphores
-        };
-
-        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, default) != Result.Success)
-        {
-            throw new Exception("Failed to submit draw command buffer!");
-        }
+        var compWaitSemaphores = new Semaphore[] { geometryRenderStage.GetSignalSemaphore(currentFrame) };
+        compositionRenderStage.SubmitCommands(graphicsQueue, currentFrame, compWaitSemaphores);
 
         // submit post process commands
-        var postProcessCommandBuffer = postProcessingCommandBuffers[currentFrame];
-        var postProcessWaitSemaphores= stackalloc[] { compositionPassFinishedSemaphores[currentFrame] };
-        var postProcessSignalSemaphores = stackalloc[] { renderFinishedSemaphores[currentFrame] };
-
-        submitInfo = submitInfo with
-        {
-            PWaitSemaphores = postProcessWaitSemaphores,
-            PCommandBuffers = &postProcessCommandBuffer,
-            PSignalSemaphores = postProcessSignalSemaphores
-        };
-
-        if (vk.QueueSubmit(graphicsQueue, 1, in submitInfo, inFlightFences[currentFrame]) != Result.Success)
-        {
-            throw new Exception("Failed to submit draw command buffer!");
-        }
+        var postProcessWaitSemaphores = new Semaphore[] { compositionRenderStage.GetSignalSemaphore(currentFrame) };
+        postProcessRenderStage.SubmitCommands(graphicsQueue, currentFrame, postProcessWaitSemaphores, inFlightFences[currentFrame]);
 
         var swapchains = stackalloc[] { swapchainInfo.Swapchain };
+        var postProcessSignalSemaphores = stackalloc[] { postProcessRenderStage.GetSignalSemaphore(currentFrame) };
 
         uint idx = imageIndex;
         PresentInfoKHR presentInfo = new()
@@ -847,9 +660,9 @@ unsafe public partial class VulkanRenderer
         vk.DestroyPipeline(device, geometryPipeline.Pipeline, null);
         vk.DestroyPipelineLayout(device, geometryPipeline.Layout, null);
 
-        DestroyPostProcessingRenderPass(postProcessingRenderPass, swapchainFramebuffers);
-        DestroyCompositionRenderPass(compositionColorAttachment, compositionDepthAttachment, compositionRenderPass, compositionFramebuffer);
-        DestroyGeomtryRenderPass(gBuffer, geometryRenderPass, geometryFramebuffer);
+        geometryRenderStage.Dispose();
+        compositionRenderStage.Dispose();
+        postProcessRenderStage.Dispose();
 
         foreach (var imageView in swapchainInfo.ImageViews)
         {
@@ -874,18 +687,21 @@ unsafe public partial class VulkanRenderer
 
         CreateSwapchain(out swapchainInfo);
 
-        CreateGeometryRenderPass(out gBuffer, out geometryRenderPass, out geometryFramebuffer);
-        CreateCompositionRenderPass(out compositionColorAttachment, out compositionDepthAttachment, out compositionRenderPass, out compositionFramebuffer);
-        CreatePostProcessingRenderPass(out postProcessingRenderPass, out swapchainFramebuffers);
+        (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
+        (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
+        (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
 
-        UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBuffer);
-        UpdateSingleTextureDescriptorSets(postProcessTextureDescriptorSets, compositionColorAttachment.ImageView);
+        UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBufferAttachments.Albedo.ImageView,
+                                                                           gBufferAttachments.Normal.ImageView,
+                                                                           gBufferAttachments.AoRoughnessMetalness.ImageView,
+                                                                           gBufferAttachments.Position.ImageView);
+        UpdateSingleTextureDescriptorSets(postProcessTextureDescriptorSets, compositionAttachments.Color.ImageView);
 
-        geometryPipeline = CreateGeometryPipeline();
-        compositionPipeline = CreateCompositionPipeline();
-        lightingPipeline = CreateLightingPipeline();
-        skyboxPipeline = CreateSkyboxPipeline();
-        postProcessPipeline = CreatePostProcessPipeline();
+        geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
+        compositionPipeline = CreateCompositionPipeline(compositionRenderStage.RenderPass);
+        lightingPipeline = CreateLightingPipeline(compositionRenderStage.RenderPass);
+        skyboxPipeline = CreateSkyboxPipeline(compositionRenderStage.RenderPass);
+        postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
     }
 
     void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout)
@@ -965,6 +781,104 @@ unsafe public partial class VulkanRenderer
         EndSingleTimeCommand(commandBuffer);
     }
 
+    (RenderStage, GBufferAttachments) CreateGeometryRenderStage()
+    {
+        GBufferAttachments gBufferAttachments = new(device, physicalDevice, swapchainInfo.Extent);
+
+        RenderPassBuilder renderPassBuilder = new(device);
+        renderPassBuilder.AddColorAttachment(gBufferAttachments.Albedo.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(gBufferAttachments.Normal.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(gBufferAttachments.AoRoughnessMetalness.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(gBufferAttachments.Position.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .SetDepthStencilAttachment(gBufferAttachments.Depth.Format)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.BottomOfPipeBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.MemoryReadBit, AccessFlags.ColorAttachmentReadBit | AccessFlags.ColorAttachmentWriteBit,
+                                        DependencyFlags.ByRegionBit)
+                         .AddDependency(0, Vk.SubpassExternal,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.ColorAttachmentReadBit | AccessFlags.ColorAttachmentWriteBit, AccessFlags.MemoryReadBit,
+                                        DependencyFlags.ByRegionBit);
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(device, renderPass, new[]{ gBufferAttachments }, commandPool, swapchainInfo.Extent, 1, MaxFramesInFlight);
+
+        var clearColors = new ClearValue[] 
+        { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 0.0f } },
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, gBufferAttachments);
+    }
+
+    (RenderStage, CompositionAttachments) CreateCompositionRenderStage()
+    {
+        CompositionAttachments compositionAttachments = new(device, physicalDevice, swapchainInfo.Extent);
+
+        RenderPassBuilder renderPassBuilder = new(device);
+        renderPassBuilder.AddColorAttachment(compositionAttachments.Color.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .SetDepthStencilAttachment(compositionAttachments.Depth.Format)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+                                        DependencyFlags.None)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+                                        DependencyFlags.None);
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(device, renderPass, new[]{ compositionAttachments }, commandPool, swapchainInfo.Extent, 1, MaxFramesInFlight);
+
+        var clearColors = new ClearValue[] 
+        { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, compositionAttachments);
+    }
+
+    (RenderStage, SwapChainAttachment[]) CreatePostProcessRenderStage()
+    {
+        int swapchainImageCount = swapchainInfo.ImageViews.Length;
+        SwapChainAttachment[] swapChainAttachments = new SwapChainAttachment[swapchainImageCount];
+        for (int i = 0; i < swapchainImageCount; i++)
+        {
+            swapChainAttachments[i] = new SwapChainAttachment(device, swapchainInfo.ImageViews[i], swapchainInfo.ImageFormat);
+        }
+
+        RenderPassBuilder renderPassBuilder = new(device);
+        renderPassBuilder.AddColorAttachment(swapchainInfo.ImageFormat, ImageLayout.PresentSrcKhr)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+                                        DependencyFlags.None)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+                                        DependencyFlags.None);
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(device, renderPass, swapChainAttachments, commandPool, swapchainInfo.Extent, (uint) swapchainImageCount, MaxFramesInFlight);
+
+        var clearColors = new ClearValue[] 
+        { 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, swapChainAttachments);
+    }
+
     void CreateCommandBuffers(out CommandBuffer[] geometryCommandBuffers, out CommandBuffer[] compositionCommandBuffers, out CommandBuffer[] postProcessingCommandBuffers)
     {
         geometryCommandBuffers = new CommandBuffer[MaxFramesInFlight];
@@ -1005,15 +919,9 @@ unsafe public partial class VulkanRenderer
     }
 
     void CreateSyncObjects(out Semaphore[] imageAvailableSemaphores,
-                           out Semaphore[] geometryPassFinishedSemaphores,
-                           out Semaphore[] compositionPassFinishedSemaphores,
-                           out Semaphore[] renderFinishedSemaphores,
                            out Fence[] inFlightFences)
     {
         imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
-        geometryPassFinishedSemaphores = new Semaphore[MaxFramesInFlight];
-        compositionPassFinishedSemaphores = new Semaphore[MaxFramesInFlight];
-        renderFinishedSemaphores = new Semaphore[MaxFramesInFlight];
         inFlightFences = new Fence[MaxFramesInFlight];
 
         SemaphoreCreateInfo semaphoreInfo = new()
@@ -1030,9 +938,6 @@ unsafe public partial class VulkanRenderer
         for (int i = 0; i < MaxFramesInFlight; i++)
         {
             if (vk.CreateSemaphore(device, in semaphoreInfo, null, out imageAvailableSemaphores[i]) != Result.Success ||
-                vk.CreateSemaphore(device, in semaphoreInfo, null, out geometryPassFinishedSemaphores[i]) != Result.Success ||
-                vk.CreateSemaphore(device, in semaphoreInfo, null, out compositionPassFinishedSemaphores[i]) != Result.Success ||
-                vk.CreateSemaphore(device, in semaphoreInfo, null, out renderFinishedSemaphores[i]) != Result.Success ||
                 vk.CreateFence(device, in fenceInfo, null, out inFlightFences[i]) != Result.Success)
             {
                 throw new Exception("Failed to create sync objects!");
@@ -1292,9 +1197,12 @@ unsafe public partial class VulkanRenderer : IDisposable
             for (int i = 0; i < MaxFramesInFlight; i++)
             {
                 vk.DestroySemaphore(device, imageAvailableSemaphores[i], null);
-                vk.DestroySemaphore(device, renderFinishedSemaphores[i], null);
                 vk.DestroyFence(device, inFlightFences[i], null);
             }
+
+            geometryRenderStage.Dispose();
+            compositionRenderStage.Dispose();
+            postProcessRenderStage.Dispose();
 
             vk.DestroySampler(device, textureSampler, null);
 
