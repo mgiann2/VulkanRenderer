@@ -4,95 +4,31 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Renderer;
 
-public struct Texture
+unsafe public class Texture : IDisposable
 {
-    public Image TextureImage { get; init; }
-    public DeviceMemory TextureImageMemory { get; init; }
-    public ImageView TextureImageView { get; init; }
-}
+    private static Vk vk = VulkanHelper.Vk;
+    private VulkanRenderer renderer;
+    private bool disposedValue;
 
-public struct Material
-{
-    public Texture Albedo { get; init; }
-    public Texture Normal { get; init; }
-    public Texture AORoughnessMetalness { get; init; }
-    public DescriptorSet[] DescriptorSets { get; init; }
-}
+    public Image TextureImage { get; }
+    public DeviceMemory TextureImageMemory { get; }
+    public ImageView TextureImageView { get; }
 
-unsafe public partial class VulkanRenderer
-{
-    public Texture CreateTexture(string filepath)
+    public Texture(VulkanRenderer renderer, string filepath)
     {
-        Image image;
-        DeviceMemory imageMemory;
-        ImageView imageView;
+        this.renderer = renderer;
 
-        // create image
         using (var stream = File.OpenRead(filepath))
         using (var memoryStream = new MemoryStream())
         {
             stream.CopyTo(memoryStream);
-            (image, imageMemory) = CreateTextureImage(memoryStream);
+            (TextureImage, TextureImageMemory) = CreateTextureImage(memoryStream, renderer);
         }
 
-        imageView = CreateTextureImageView(image);
-
-        return new Texture 
-        {
-            TextureImage = image,
-            TextureImageMemory = imageMemory,
-            TextureImageView = imageView
-        };
+        TextureImageView = CreateTextureImageView(TextureImage, renderer);
     }
 
-    public Material CreateMaterial(string albedoPath, string normalPath, string aoRoughnessMetalnessPath)
-    {
-        var albedoTexture = CreateTexture(albedoPath);
-        var normalTexture = CreateTexture(normalPath);
-        var aoRoughnessMetalnessTexture = CreateTexture(aoRoughnessMetalnessPath);
-
-        var descriptorSets = CreateMaterialInfoDescriptorSets(albedoTexture.TextureImageView,
-                                                         normalTexture.TextureImageView,
-                                                         aoRoughnessMetalnessTexture.TextureImageView);
-
-        return new Material
-        {
-            Albedo = albedoTexture,
-            Normal = normalTexture,
-            AORoughnessMetalness = aoRoughnessMetalnessTexture,
-            DescriptorSets = descriptorSets
-        };
-    }
-
-    public void BindMaterial(Material material)
-    {
-        var geometryCommandBuffer = geometryRenderStage.GetCommandBuffer(currentFrame);
-
-        vk.CmdBindDescriptorSets(geometryCommandBuffer, PipelineBindPoint.Graphics,
-                                 geometryPipeline.Layout, 1, 1, in material.DescriptorSets[currentFrame], 0, default);
-    }
-
-    public void DestroyTexture(Texture texture)
-    {
-        vk.DestroyImageView(device, texture.TextureImageView, null);
-        vk.DestroyImage(device, texture.TextureImage, null);
-        vk.FreeMemory(device, texture.TextureImageMemory, null);
-    }
-
-    public void DestroyMaterial(Material material)
-    {
-        fixed (DescriptorSet* descriptorSetsPtr = material.DescriptorSets)
-        {
-            vk.FreeDescriptorSets(device, materialInfoDescriptorPool,
-                    (uint) material.DescriptorSets.Length, descriptorSetsPtr);
-        }
-
-        DestroyTexture(material.Albedo);
-        DestroyTexture(material.Normal);
-        DestroyTexture(material.AORoughnessMetalness);
-    }
-
-    (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream)
+    (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream, VulkanRenderer renderer)
     {
         var image = Stbi.LoadFromMemory(memoryStream, 4);
 
@@ -100,30 +36,53 @@ unsafe public partial class VulkanRenderer
 
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, imageSize, BufferUsageFlags.TransferSrcBit,
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(renderer.Device, renderer.PhysicalDevice, imageSize, BufferUsageFlags.TransferSrcBit,
                      MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
-        vk.MapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+        vk.MapMemory(renderer.Device, stagingBufferMemory, 0, imageSize, 0, &data);
         image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
-        vk.UnmapMemory(device, stagingBufferMemory);
+        vk.UnmapMemory(renderer.Device, stagingBufferMemory);
 
-        (var textureImage, var textureImageMemory) = VulkanHelper.CreateImage(device, physicalDevice, 
+        (var textureImage, var textureImageMemory) = VulkanHelper.CreateImage(renderer.Device, renderer.PhysicalDevice, 
                 (uint)image.Width, (uint)image.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal,
                 ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
 
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
-        CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);
-        TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+        renderer.TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+        renderer.CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);
+        renderer.TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
 
-        vk.DestroyBuffer(device, stagingBuffer, null);
-        vk.FreeMemory(device, stagingBufferMemory, null);
+        vk.DestroyBuffer(renderer.Device, stagingBuffer, null);
+        vk.FreeMemory(renderer.Device, stagingBufferMemory, null);
 
         return (textureImage, textureImageMemory);
     }
 
-    ImageView CreateTextureImageView(Image textureImage)
+    ImageView CreateTextureImageView(Image textureImage, VulkanRenderer renderer)
     {
-        return VulkanHelper.CreateImageView(device, textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
+        return VulkanHelper.CreateImageView(renderer.Device, textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            // free unmanaged resources (unmanaged objects) and override finalizer
+            vk.DestroyImageView(renderer.Device, TextureImageView, null);
+            vk.DestroyImage(renderer.Device, TextureImage, null);
+            vk.FreeMemory(renderer.Device, TextureImageMemory, null);
+            disposedValue = true;
+        }
+    }
+
+    ~Texture()
+    {
+        Dispose(disposing: false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }

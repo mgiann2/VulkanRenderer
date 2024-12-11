@@ -77,9 +77,9 @@ class Program
                                     ComputerModelPath + ComputerTexturePath + "metallicRoughness.png");
         computerTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(90.0f, 180.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
 
-        var paintedMetalMaterial = renderer.CreateMaterial(MaterialsPath + "PaintedMetal/BaseColor.png",
-                                                   MaterialsPath + "PaintedMetal/NormHeight.png",
-                                                   MaterialsPath + "PaintedMetal/ARM.png");
+        var paintedMetalMaterial = new Material(renderer, MaterialsPath + "PaintedMetal/BaseColor.png",
+                                                          MaterialsPath + "PaintedMetal/NormHeight.png",
+                                                          MaterialsPath + "PaintedMetal/ARM.png");
         cubeModel = new Model(PrimitiveMesh.CreateCubeMesh(renderer), paintedMetalMaterial);
         cubeTransform = new Transform();
 

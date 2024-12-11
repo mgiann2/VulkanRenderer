@@ -36,7 +36,7 @@ unsafe public partial class VulkanRenderer
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + GeometryVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + GeometryFragmentShaderFilename);
 
-        GraphicsPipelineBuilder pipelineBuilder = new(device);
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
         pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
                        .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
@@ -54,7 +54,7 @@ unsafe public partial class VulkanRenderer
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + CompositionVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + CompositionFragmentShaderFilename);
 
-        GraphicsPipelineBuilder pipelineBuilder = new(device);
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
         pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
                        .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
@@ -71,7 +71,7 @@ unsafe public partial class VulkanRenderer
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + LightingVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + LightingFragmentShaderFilename);
 
-        GraphicsPipelineBuilder pipelineBuilder = new(device);
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
         pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
                        .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
@@ -89,7 +89,7 @@ unsafe public partial class VulkanRenderer
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + SkyboxVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + SkyboxFragmentShaderFilename);
 
-        GraphicsPipelineBuilder pipelineBuilder = new(device);
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
         pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
                        .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
@@ -106,7 +106,7 @@ unsafe public partial class VulkanRenderer
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + PostProcessVertexShaderFilename);
         byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + PostProcessFragmentShaderFilename);
 
-        GraphicsPipelineBuilder pipelineBuilder = new(device);
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
         pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
                        .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
@@ -138,7 +138,7 @@ unsafe public partial class VulkanRenderer
             PBindings = &uboBinding,
         };
 
-        if (vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out var layout) != Result.Success)
+        if (vk.CreateDescriptorSetLayout(Device, in layoutInfo, null, out var layout) != Result.Success)
         {
             throw new Exception("Failed to create descriptor set layout!");
         }
@@ -163,7 +163,7 @@ unsafe public partial class VulkanRenderer
             Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
-        if (vk.CreateDescriptorPool(device, in poolInfo, null, out var descriptorPool) != Result.Success)
+        if (vk.CreateDescriptorPool(Device, in poolInfo, null, out var descriptorPool) != Result.Success)
         {
             throw new Exception("Failed to create descriptor pool!");
         }
@@ -190,7 +190,7 @@ unsafe public partial class VulkanRenderer
             
             fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
             {
-                if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
+                if (vk.AllocateDescriptorSets(Device, in allocInfo, descriptorSetsPtr) != Result.Success)
                 {
                     throw new Exception("Failed to allocate descriptor sets!");
                 }
@@ -217,7 +217,7 @@ unsafe public partial class VulkanRenderer
                 PBufferInfo = &bufferInfo
             };
 
-            vk.UpdateDescriptorSets(device, 1, ref descriptorWrite, 0, default);
+            vk.UpdateDescriptorSets(Device, 1, ref descriptorWrite, 0, default);
         }
 
         return descriptorSets;
@@ -265,7 +265,7 @@ unsafe public partial class VulkanRenderer
         fixed (DescriptorSetLayoutBinding* bindingsPtr = bindings)
             layoutInfo.PBindings = bindingsPtr;
 
-        if (vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out var layout) != Result.Success)
+        if (vk.CreateDescriptorSetLayout(Device, in layoutInfo, null, out var layout) != Result.Success)
         {
             throw new Exception("Failed to create descriptor set layout!");
         }
@@ -290,7 +290,7 @@ unsafe public partial class VulkanRenderer
             Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
-        if (vk.CreateDescriptorPool(device, in poolInfo, null, out var descriptorPool) != Result.Success)
+        if (vk.CreateDescriptorPool(Device, in poolInfo, null, out var descriptorPool) != Result.Success)
         {
             throw new Exception("Failed to create descriptor pool!");
         }
@@ -298,7 +298,7 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateMaterialInfoDescriptorSets(ImageView albedoView, ImageView normalView, ImageView aoRoughnessMetalnessView)
+    public DescriptorSet[] CreateMaterialInfoDescriptorSets(ImageView albedoView, ImageView normalView, ImageView aoRoughnessMetalnessView)
     {
         var descriptorSets = new DescriptorSet[MaxFramesInFlight];
 
@@ -317,7 +317,7 @@ unsafe public partial class VulkanRenderer
             
             fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
             {
-                if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
+                if (vk.AllocateDescriptorSets(Device, in allocInfo, descriptorSetsPtr) != Result.Success)
                 {
                     throw new Exception("Failed to allocate descriptor sets!");
                 }
@@ -382,7 +382,7 @@ unsafe public partial class VulkanRenderer
             };
 
             fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
-                vk.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
+                vk.UpdateDescriptorSets(Device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
         }
 
         return descriptorSets;
@@ -438,7 +438,7 @@ unsafe public partial class VulkanRenderer
             PBindings = bindings
         };
 
-        if (vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out var layout) != Result.Success)
+        if (vk.CreateDescriptorSetLayout(Device, in layoutInfo, null, out var layout) != Result.Success)
         {
             throw new Exception("Failed to create descriptor set layout!");
         }
@@ -462,7 +462,7 @@ unsafe public partial class VulkanRenderer
             MaxSets = (uint) MaxFramesInFlight
         };
 
-        if (vk.CreateDescriptorPool(device, in poolInfo, null, out var descriptorPool) != Result.Success)
+        if (vk.CreateDescriptorPool(Device, in poolInfo, null, out var descriptorPool) != Result.Success)
         {
             throw new Exception("Failed to create descriptor pool!");
         }
@@ -489,7 +489,7 @@ unsafe public partial class VulkanRenderer
             
             fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
             {
-                if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
+                if (vk.AllocateDescriptorSets(Device, in allocInfo, descriptorSetsPtr) != Result.Success)
                 {
                     throw new Exception("Failed to allocate descriptor sets!");
                 }
@@ -571,7 +571,7 @@ unsafe public partial class VulkanRenderer
             };
 
             fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
-                vk.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
+                vk.UpdateDescriptorSets(Device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
         }
 
         return descriptorSets;
@@ -654,7 +654,7 @@ unsafe public partial class VulkanRenderer
             };
 
             fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
-                vk.UpdateDescriptorSets(device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
+                vk.UpdateDescriptorSets(Device, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
         }
     }
 
@@ -679,7 +679,7 @@ unsafe public partial class VulkanRenderer
             PBindings = &colorSamplerBinding
         };
 
-        if (vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out var layout) != Result.Success)
+        if (vk.CreateDescriptorSetLayout(Device, in layoutInfo, null, out var layout) != Result.Success)
         {
             throw new Exception("Failed to create descriptor set layout!");
         }
@@ -704,7 +704,7 @@ unsafe public partial class VulkanRenderer
             Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
-        if (vk.CreateDescriptorPool(device, in poolInfo, null, out var descriptorPool) != Result.Success)
+        if (vk.CreateDescriptorPool(Device, in poolInfo, null, out var descriptorPool) != Result.Success)
         {
             throw new Exception("Failed to create descriptor pool!");
         }
@@ -731,7 +731,7 @@ unsafe public partial class VulkanRenderer
             
             fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
             {
-                if (vk.AllocateDescriptorSets(device, in allocInfo, descriptorSetsPtr) != Result.Success)
+                if (vk.AllocateDescriptorSets(Device, in allocInfo, descriptorSetsPtr) != Result.Success)
                 {
                     throw new Exception("Failed to allocate descriptor sets!");
                 }
@@ -758,7 +758,7 @@ unsafe public partial class VulkanRenderer
                 PImageInfo = &colorInfo
             };
 
-            vk.UpdateDescriptorSets(device, 1, &descriptorWrite, 0, default);
+            vk.UpdateDescriptorSets(Device, 1, &descriptorWrite, 0, default);
         }
 
         return descriptorSets;
@@ -786,7 +786,7 @@ unsafe public partial class VulkanRenderer
                 PImageInfo = &colorInfo
             };
 
-            vk.UpdateDescriptorSets(device, 1, &descriptorWrite, 0, default);        
+            vk.UpdateDescriptorSets(Device, 1, &descriptorWrite, 0, default);        
         }
     }
 }

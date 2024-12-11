@@ -54,7 +54,7 @@ unsafe public partial class VulkanRenderer
         var indexBuffer = CreateIndexBuffer(Array.ConvertAll(indices.ToArray(), val => (ushort)val));
 
         // create texture
-        var material = CreateMaterial(albedoPath, normalPath, aoRoughnessMetalnessPath);
+        var material = new Material(this, albedoPath, normalPath, aoRoughnessMetalnessPath);
 
         return new Model()
         {
@@ -198,7 +198,7 @@ unsafe public partial class VulkanRenderer
 
     public void DestroyModel(Model model)
     {
-        DestroyMaterial(model.Material);
+        model.Material.Dispose();
         DestroyMesh(model.Mesh);
     }
 

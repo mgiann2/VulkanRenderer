@@ -88,23 +88,23 @@ unsafe public partial class VulkanRenderer
         
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(Device, PhysicalDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
                      MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
-        vk.MapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        vk.MapMemory(Device, stagingBufferMemory, 0, bufferSize, 0, &data);
         vertices.AsSpan().CopyTo(new Span<Vertex>(data, vertices.Length));
-        vk.UnmapMemory(device, stagingBufferMemory);
+        vk.UnmapMemory(Device, stagingBufferMemory);
 
         Buffer vertexBuffer;
         DeviceMemory vertexBufferMemory;
-        (vertexBuffer, vertexBufferMemory) = VulkanHelper.CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
+        (vertexBuffer, vertexBufferMemory) = VulkanHelper.CreateBuffer(Device, PhysicalDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
                      MemoryPropertyFlags.DeviceLocalBit);
 
         CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
 
-        vk.DestroyBuffer(device, stagingBuffer, null);
-        vk.FreeMemory(device, stagingBufferMemory, null);
+        vk.DestroyBuffer(Device, stagingBuffer, null);
+        vk.FreeMemory(Device, stagingBufferMemory, null);
 
         return new VertexBuffer(vertexBuffer, vertexBufferMemory, (uint) vertices.Length);
     }
@@ -123,7 +123,7 @@ unsafe public partial class VulkanRenderer
 
     public void DestroyBuffer(VertexBuffer vertexBuffer)
     {
-        vk.DestroyBuffer(device, vertexBuffer.Buffer, null);
-        vk.FreeMemory(device, vertexBuffer.BufferMemory, null);
+        vk.DestroyBuffer(Device, vertexBuffer.Buffer, null);
+        vk.FreeMemory(Device, vertexBuffer.BufferMemory, null);
     }
 }
