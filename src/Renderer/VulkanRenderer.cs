@@ -107,10 +107,12 @@ unsafe public partial class VulkanRenderer
 
     GBufferAttachments gBufferAttachments;
     CompositionAttachments compositionAttachments;
+    BloomAttachments bloomAttachments;
     SwapChainAttachment[] swapChainAttachments;
 
     RenderStage geometryRenderStage;
     RenderStage compositionRenderStage;
+    RenderStage bloomRenderStage;
     RenderStage postProcessRenderStage;
 
     Buffer[] sceneInfoBuffers;
@@ -192,6 +194,7 @@ unsafe public partial class VulkanRenderer
         // create render stages
         (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
         (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
+        (bloomRenderStage, bloomAttachments) = CreateBloomRenderStage();
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
 
         // Create composition pass descriptor set
@@ -739,6 +742,7 @@ unsafe public partial class VulkanRenderer
 
         geometryRenderStage.Dispose();
         compositionRenderStage.Dispose();
+        bloomRenderStage.Dispose();
         postProcessRenderStage.Dispose();
 
         foreach (var imageView in swapchainInfo.ImageViews)
@@ -766,6 +770,7 @@ unsafe public partial class VulkanRenderer
 
         (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
         (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
+        (bloomRenderStage, bloomAttachments) = CreateBloomRenderStage();
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
 
         UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBufferAttachments.Albedo.ImageView,
@@ -846,6 +851,34 @@ unsafe public partial class VulkanRenderer
         renderStage.ClearValues.AddRange(clearColors);
 
         return (renderStage, compositionAttachments);
+    }
+
+    (RenderStage, BloomAttachments) CreateBloomRenderStage()
+    {
+        BloomAttachments bloomAttachments = new(Device, PhysicalDevice, swapchainInfo.Extent);
+
+        RenderPassBuilder renderPassBuilder = new(Device);
+        renderPassBuilder.AddColorAttachment(bloomAttachments.Color.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+                                        DependencyFlags.None)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+                                        DependencyFlags.None);
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(Device, renderPass, new[]{ bloomAttachments }, commandPool, swapchainInfo.Extent, 1, MaxFramesInFlight);
+
+        var clearColors = new ClearValue[]
+        {
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, bloomAttachments);
     }
 
     (RenderStage, SwapChainAttachment[]) CreatePostProcessRenderStage()

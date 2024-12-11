@@ -127,6 +127,56 @@ unsafe public class CompositionAttachments : IFramebufferAttachmentCollection
     }
 }
 
+unsafe public class BloomAttachments : IFramebufferAttachmentCollection
+{
+    public ImageAttachment Color { get; }
+
+    private bool disposedValue;
+
+    public IReadOnlyList<IFramebufferAttachment> ColorAttachments
+    {
+        get 
+        {
+            return new IFramebufferAttachment[] { Color };
+        }
+    }
+    public IFramebufferAttachment? DepthAttachment { get => null; }
+    public ImageView[] Attachments
+    {
+        get
+        {
+            return new ImageView[] { Color.ImageView };
+        }
+    }
+
+    public BloomAttachments(Device device, PhysicalDevice physicalDevice, Extent2D swapchainImageExtent)
+    {
+        Color = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            // free unmanaged resources (unmanaged objects) and override finalizer
+            Color.Dispose();
+
+            disposedValue = true;
+        }
+    }
+
+    ~BloomAttachments()
+    {
+        Dispose(disposing: false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+}
+
 unsafe public class SwapChainAttachment : IFramebufferAttachmentCollection
 {
     public ImageViewAttachment SwapchainAttachment { get; }
