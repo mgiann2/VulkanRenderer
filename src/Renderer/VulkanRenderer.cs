@@ -107,12 +107,14 @@ unsafe public partial class VulkanRenderer
 
     GBufferAttachments gBufferAttachments;
     CompositionAttachments compositionAttachments;
-    BloomAttachments bloomAttachments;
+    BloomAttachments bloomAttachments1;
+    BloomAttachments bloomAttachments2;
     SwapChainAttachment[] swapChainAttachments;
 
     RenderStage geometryRenderStage;
     RenderStage compositionRenderStage;
-    RenderStage bloomRenderStage;
+    RenderStage bloomRenderStage1;
+    RenderStage bloomRenderStage2;
     RenderStage postProcessRenderStage;
 
     Buffer[] sceneInfoBuffers;
@@ -130,7 +132,10 @@ unsafe public partial class VulkanRenderer
 
     DescriptorSet[] sceneInfoDescriptorSets;
     DescriptorSet[] screenTextureInfoDescriptorSets;
-    DescriptorSet[] postProcessTextureDescriptorSets;
+    DescriptorSet[] compositionOutputTextureDescriptorSets;
+    DescriptorSet[] thresholdTextureDescriptorSets;
+    DescriptorSet[] bloomPass1OutputTextureDescriptorSets;
+    DescriptorSet[] bloomPass2OutputTextureDescriptorSets;
 
     Texture skyboxTexture;
     DescriptorSet[] skyboxTextureDescriptorSets;
@@ -139,6 +144,8 @@ unsafe public partial class VulkanRenderer
     GraphicsPipeline compositionPipeline;
     GraphicsPipeline lightingPipeline;
     GraphicsPipeline skyboxPipeline;
+    GraphicsPipeline bloom1Pipeline;
+    GraphicsPipeline bloom2Pipeline;
     GraphicsPipeline postProcessPipeline;
 
     CommandPool commandPool;
@@ -183,7 +190,7 @@ unsafe public partial class VulkanRenderer
         sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool();
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxGBufferDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
-        singleTextureDescriptorPool = CreateSingleTextureDescriptorPool();
+        singleTextureDescriptorPool = CreateSingleTextureDescriptorPool(10);
 
         // Create descriptor set layouts
         sceneInfoDescriptorSetLayout = CreateSceneInfoDescriptorSetLayout();
@@ -194,7 +201,8 @@ unsafe public partial class VulkanRenderer
         // create render stages
         (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
         (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
-        (bloomRenderStage, bloomAttachments) = CreateBloomRenderStage();
+        (bloomRenderStage1, bloomAttachments1) = CreateBloomRenderStage();
+        (bloomRenderStage2, bloomAttachments2) = CreateBloomRenderStage();
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
 
         // Create composition pass descriptor set
@@ -203,13 +211,18 @@ unsafe public partial class VulkanRenderer
                                                                                 gBufferAttachments.Normal.ImageView,
                                                                                 gBufferAttachments.AoRoughnessMetalness.ImageView,
                                                                                 gBufferAttachments.Position.ImageView);
-        postProcessTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView);
+        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView);
+        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView);
+        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView);
+        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView);
 
         // Create pipelines
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
         compositionPipeline = CreateCompositionPipeline(compositionRenderStage.RenderPass);
         lightingPipeline = CreateLightingPipeline(compositionRenderStage.RenderPass);
         skyboxPipeline = CreateSkyboxPipeline(compositionRenderStage.RenderPass);
+        bloom1Pipeline = CreateBloomPipeline(bloomRenderStage1.RenderPass);
+        bloom2Pipeline = CreateBloomPipeline(bloomRenderStage2.RenderPass);
         postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
 
         // create commnad pool and buffers
@@ -319,15 +332,53 @@ unsafe public partial class VulkanRenderer
 
         compositionRenderStage.EndCommands(currentFrame);
 
+        // Begin bloom render passes
+        // -------------------------
+        bloomRenderStage1.BeginCommands(currentFrame, 0);
+        var bloom1CommandBuffer = bloomRenderStage1.GetCommandBuffer(currentFrame);
+
+        var bloom1DescriptorSet = stackalloc[] { thresholdTextureDescriptorSets[currentFrame] };
+        vk.CmdBindPipeline(bloom1CommandBuffer, PipelineBindPoint.Graphics, bloom1Pipeline.Pipeline);
+        vk.CmdBindDescriptorSets(bloom1CommandBuffer, PipelineBindPoint.Graphics,
+                bloom1Pipeline.Layout, 0, 1, bloom1DescriptorSet, 0, default);
+        bool horizontal = true;
+        vk.CmdPushConstants(bloom1CommandBuffer, bloom1Pipeline.Layout,
+                            ShaderStageFlags.FragmentBit, 0,
+                            4, &horizontal);
+
+        Bind(screenQuadMesh.VertexBuffer, bloom1CommandBuffer);
+        Bind(screenQuadMesh.IndexBuffer, bloom1CommandBuffer);
+        vk.CmdDrawIndexed(bloom1CommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+        bloomRenderStage1.EndCommands(currentFrame);
+
+        bloomRenderStage2.BeginCommands(currentFrame, 0);
+        var bloom2CommandBuffer = bloomRenderStage2.GetCommandBuffer(currentFrame);
+
+        var bloom2DescriptorSet = stackalloc[] { bloomPass1OutputTextureDescriptorSets[currentFrame] };
+        vk.CmdBindPipeline(bloom2CommandBuffer, PipelineBindPoint.Graphics, bloom2Pipeline.Pipeline);
+        vk.CmdBindDescriptorSets(bloom2CommandBuffer, PipelineBindPoint.Graphics,
+                bloom2Pipeline.Layout, 0, 1, bloom2DescriptorSet, 0, default);
+        horizontal = false;
+        vk.CmdPushConstants(bloom2CommandBuffer, bloom2Pipeline.Layout,
+                            ShaderStageFlags.FragmentBit, 0,
+                            4, &horizontal);
+
+        Bind(screenQuadMesh.VertexBuffer, bloom2CommandBuffer);
+        Bind(screenQuadMesh.IndexBuffer, bloom2CommandBuffer);
+        vk.CmdDrawIndexed(bloom2CommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+        bloomRenderStage2.EndCommands(currentFrame);
+
         // Begin post processing render pass
         // ---------------------------------
         postProcessRenderStage.BeginCommands(currentFrame, imageIndex);
         var postProcessCommandBuffer = postProcessRenderStage.GetCommandBuffer(currentFrame);
 
-        var postProcessDescriptorSet = stackalloc[] { postProcessTextureDescriptorSets[currentFrame] };
+        var postProcessDescriptorSets = stackalloc[] { compositionOutputTextureDescriptorSets[currentFrame], bloomPass2OutputTextureDescriptorSets[currentFrame] };
         vk.CmdBindPipeline(postProcessCommandBuffer, PipelineBindPoint.Graphics, postProcessPipeline.Pipeline);
         vk.CmdBindDescriptorSets(postProcessCommandBuffer, PipelineBindPoint.Graphics,
-                postProcessPipeline.Layout, 0, 1, postProcessDescriptorSet, 0, default);
+                postProcessPipeline.Layout, 0, 2, postProcessDescriptorSets, 0, default);
 
         Bind(screenQuadMesh.VertexBuffer, postProcessCommandBuffer);
         Bind(screenQuadMesh.IndexBuffer, postProcessCommandBuffer);
@@ -343,8 +394,14 @@ unsafe public partial class VulkanRenderer
         var compWaitSemaphores = new Semaphore[] { geometryRenderStage.GetSignalSemaphore(currentFrame) };
         compositionRenderStage.SubmitCommands(graphicsQueue, currentFrame, compWaitSemaphores);
 
+        // submit bloom commands
+        var bloom1WaitSemaphores = new Semaphore[] { compositionRenderStage.GetSignalSemaphore(currentFrame) };
+        var bloom2WaitSemaphores = new Semaphore[] { bloomRenderStage1.GetSignalSemaphore(currentFrame) };
+        bloomRenderStage1.SubmitCommands(graphicsQueue, currentFrame, bloom1WaitSemaphores);
+        bloomRenderStage2.SubmitCommands(graphicsQueue, currentFrame, bloom2WaitSemaphores);
+
         // submit post process commands
-        var postProcessWaitSemaphores = new Semaphore[] { compositionRenderStage.GetSignalSemaphore(currentFrame) };
+        var postProcessWaitSemaphores = new Semaphore[] { bloomRenderStage2.GetSignalSemaphore(currentFrame) };
         postProcessRenderStage.SubmitCommands(graphicsQueue, currentFrame, postProcessWaitSemaphores, inFlightFences[currentFrame]);
 
         var swapchains = stackalloc[] { swapchainInfo.Swapchain };
@@ -742,7 +799,7 @@ unsafe public partial class VulkanRenderer
 
         geometryRenderStage.Dispose();
         compositionRenderStage.Dispose();
-        bloomRenderStage.Dispose();
+        bloomRenderStage1.Dispose();
         postProcessRenderStage.Dispose();
 
         foreach (var imageView in swapchainInfo.ImageViews)
@@ -770,14 +827,14 @@ unsafe public partial class VulkanRenderer
 
         (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
         (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
-        (bloomRenderStage, bloomAttachments) = CreateBloomRenderStage();
+        (bloomRenderStage1, bloomAttachments1) = CreateBloomRenderStage();
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
 
         UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBufferAttachments.Albedo.ImageView,
                                                                            gBufferAttachments.Normal.ImageView,
                                                                            gBufferAttachments.AoRoughnessMetalness.ImageView,
                                                                            gBufferAttachments.Position.ImageView);
-        UpdateSingleTextureDescriptorSets(postProcessTextureDescriptorSets, compositionAttachments.Color.ImageView);
+        UpdateSingleTextureDescriptorSets(compositionOutputTextureDescriptorSets, compositionAttachments.Color.ImageView);
 
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
         compositionPipeline = CreateCompositionPipeline(compositionRenderStage.RenderPass);

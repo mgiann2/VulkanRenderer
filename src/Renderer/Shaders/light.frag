@@ -21,7 +21,7 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0);
 
 void main() {
     // get needed light variables
-    vec2 texCoord = vec2(gl_FragCoord.x / 800.0, gl_FragCoord.y / 600.0);
+    vec2 texCoord = vec2(gl_FragCoord.x, gl_FragCoord.y) / textureSize(albedoSampler, 0); // works since output texture same size as input textures
     vec3 albedo = texture(albedoSampler, texCoord).rgb;
     vec3 normal = texture(normalSampler, texCoord).rgb;
     vec3 pos = texture(positionSampler, texCoord).rgb;

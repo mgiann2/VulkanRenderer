@@ -23,12 +23,16 @@ unsafe public partial class VulkanRenderer
 
     const string SkyboxVertexShaderFilename = "skybox.vert.spv";
     const string SkyboxFragmentShaderFilename = "skybox.frag.spv";
+
+    const string BloomVertexShaderFilename = "bloom_blur.vert.spv";
+    const string BloomFragmentShaderFilename = "bloom_blur.frag.spv";
     
     const string PostProcessVertexShaderFilename = "postprocess.vert.spv";
     const string PostProcessFragmentShaderFilename = "postprocess.frag.spv";
 
     const uint GeometryPassColorAttachmentCount = 4;
     const uint CompositionPassColorAttachmentCount = 2;
+    const uint BloomPassColorAttachmentCount = 1;
     const uint PostProcessColorAttachmentCount = 1;
 
     GraphicsPipeline CreateGeometryPipeline(RenderPass renderPass)
@@ -101,6 +105,23 @@ unsafe public partial class VulkanRenderer
         return pipelineBuilder.Build(renderPass, 0);
     }
 
+    GraphicsPipeline CreateBloomPipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + BloomVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + BloomFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(BloomPassColorAttachmentCount)
+                       .SetDepthStencilInfo(false, false, CompareOp.Less)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout)
+                       .AddPushConstantRange(4, 0, ShaderStageFlags.FragmentBit);
+
+        return pipelineBuilder.Build(renderPass, 0);
+    }
+
     GraphicsPipeline CreatePostProcessPipeline(RenderPass renderPass)
     {
         byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + PostProcessVertexShaderFilename);
@@ -112,6 +133,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(PostProcessColorAttachmentCount)
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -687,12 +709,12 @@ unsafe public partial class VulkanRenderer
         return layout;
     }
 
-    DescriptorPool CreateSingleTextureDescriptorPool()
+    DescriptorPool CreateSingleTextureDescriptorPool(uint maxSets)
     {
         DescriptorPoolSize poolSize = new()
         {
             Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = (uint) MaxFramesInFlight * 2
+            DescriptorCount = (uint) MaxFramesInFlight * maxSets
         };
 
         DescriptorPoolCreateInfo poolInfo = new()
@@ -700,7 +722,7 @@ unsafe public partial class VulkanRenderer
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = (uint) MaxFramesInFlight * 2,
+            MaxSets = (uint) MaxFramesInFlight * maxSets,
             Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 

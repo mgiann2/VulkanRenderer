@@ -90,12 +90,12 @@ class Program
             new()
             {
                 Position = new Vector3D<float>(-2.0f, 0.0f, 1.0f),
-                Color = new Vector3D<float>(0.0f, 2.0f, 0.0f),
+                Color = new Vector3D<float>(0.0f, 1.0f, 0.0f),
             },
             new()
             {
                 Position = new Vector3D<float>(2.0f, 0.0f, 1.0f),
-                Color = new Vector3D<float>(0.0f, 0.0f, 2.0f)
+                Color = new Vector3D<float>(0.0f, 0.0f, 1.0f)
             }
         }; 
         renderer!.Lights.AddRange(lights);
@@ -122,7 +122,7 @@ class Program
             AmbientLightColor = new Vector3D<float>(1.0f),
             AmbientLightStrength = 0.1f,
             DirectionalLightDirection = new Vector3D<float>(1.0f, -1.0f, 0.0f),
-            DirectionalLightColor = new Vector3D<float>(1.0f, 0.0f, 0.0f)
+            DirectionalLightColor = new Vector3D<float>(0.5f, 0.0f, 0.0f)
         };
         renderer!.UpdateSceneInfo(sceneInfo);
 

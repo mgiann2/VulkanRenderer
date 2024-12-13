@@ -1,6 +1,7 @@
 #version 450
 
 layout (set = 0, binding = 0) uniform sampler2D albedoSampler;
+layout (set = 1, binding = 0) uniform sampler2D bloomSampler;
 
 layout(location = 0) in vec2 inTexCoord;
 
@@ -18,9 +19,12 @@ vec3 ACESFilmicTonemap(vec3 color) {
 
 void main() {
     vec3 hdrColor = texture(albedoSampler, inTexCoord).rgb;
+    vec3 bloomColor = texture(bloomSampler, inTexCoord).rgb;
+
+    vec3 combinedColor = hdrColor + bloomColor;
 
     // apply ACES filmic tonemapping
-    vec3 mappedColor = ACESFilmicTonemap(hdrColor);
+    vec3 mappedColor = ACESFilmicTonemap(combinedColor);
 
     // gamma correction
     const float gamma = 2.2;
