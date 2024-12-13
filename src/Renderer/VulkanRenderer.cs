@@ -1198,7 +1198,7 @@ unsafe public partial class VulkanRenderer
     {
         foreach (var presentMode in availablePresentModes)
         {
-            if (presentMode == PresentModeKHR.MailboxKhr)
+            if (presentMode == PresentModeKHR.FifoKhr)
             {
                 return presentMode;
             }
