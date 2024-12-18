@@ -79,7 +79,7 @@ class Program
                                                           MaterialsPath + "PaintedMetal/Normal.png",
                                                           MaterialsPath + "PaintedMetal/ARM.png");
         cubeModel = new Model(PrimitiveMesh.CreateCubeMesh(renderer), paintedMetalMaterial);
-        cubeTransform = new Transform(new Vector3D<float>(2.0f, 0.0f, 0.0f), Vector3D<float>.Zero, Vector3D<float>.One);
+        cubeTransform = new Transform(new Vector3D<float>(3.0f, 0.0f, 0.0f), Vector3D<float>.Zero, Vector3D<float>.One);
 
         lights = new Light[]
         {
