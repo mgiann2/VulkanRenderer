@@ -18,7 +18,7 @@ void main() {
 
     vec3 normal = texture(normalSampler, inTexCoord).rgb;
     normal = normalize(normal * 2.0 - 1.0);
-    outNormal = vec4(normalize(normal), 1.0);
+    outNormal = vec4(inTBN * normal, 1.0);
 
     outAORoughnessMetalness = texture(aoRoughnessMetalnessSampler, inTexCoord);
     outPosition = inPosition;

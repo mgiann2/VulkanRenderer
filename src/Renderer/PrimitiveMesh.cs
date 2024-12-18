@@ -27,8 +27,8 @@ public static class PrimitiveMesh
     private static readonly Vector3D<float>[] cubeNormals =
     {
         -Vector3D<float>.UnitZ,
-        -Vector3D<float>.UnitX,
         Vector3D<float>.UnitX,
+        -Vector3D<float>.UnitX,
         Vector3D<float>.UnitY,
         -Vector3D<float>.UnitY,
         Vector3D<float>.UnitZ
