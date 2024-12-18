@@ -22,8 +22,6 @@ class Program
     static Model cubeModel;
     static Transform? cubeTransform;
 
-    static Model quadModel;
-
     static Light[]? lights;
     
     static Vector2D<float> keyboardMovement = Vector2D<float>.Zero;
@@ -78,24 +76,22 @@ class Program
         computerTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(90.0f, 180.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
 
         var paintedMetalMaterial = new Material(renderer, MaterialsPath + "PaintedMetal/BaseColor.png",
-                                                          MaterialsPath + "PaintedMetal/NormHeight.png",
+                                                          MaterialsPath + "PaintedMetal/Normal.png",
                                                           MaterialsPath + "PaintedMetal/ARM.png");
         cubeModel = new Model(PrimitiveMesh.CreateCubeMesh(renderer), paintedMetalMaterial);
-        cubeTransform = new Transform();
-
-        quadModel = new Model(PrimitiveMesh.CreateQuadMesh(renderer), paintedMetalMaterial);
+        cubeTransform = new Transform(new Vector3D<float>(2.0f, 0.0f, 0.0f), Vector3D<float>.Zero, Vector3D<float>.One);
 
         lights = new Light[]
         {
             new()
             {
-                Position = new Vector3D<float>(-2.0f, 0.0f, 1.0f),
-                Color = new Vector3D<float>(0.0f, 1.0f, 0.0f),
+                Position = new Vector3D<float>(-2.0f, 2.0f, 0.0f),
+                Color = new Vector3D<float>(0.0f, 5.0f, 0.0f),
             },
             new()
             {
-                Position = new Vector3D<float>(2.0f, 0.0f, 1.0f),
-                Color = new Vector3D<float>(0.0f, 0.0f, 1.0f)
+                Position = new Vector3D<float>(2.0f, 2.0f, 0.0f),
+                Color = new Vector3D<float>(0.0f, 0.0f, 5.0f)
             }
         }; 
         renderer!.Lights.AddRange(lights);
@@ -120,9 +116,9 @@ class Program
             CameraView = camera!.GetViewMatrix(),
             CameraProjection = camera!.GetProjectionMatrix((float) width / height),
             AmbientLightColor = new Vector3D<float>(1.0f),
-            AmbientLightStrength = 0.1f,
+            AmbientLightStrength = 0.03f,
             DirectionalLightDirection = new Vector3D<float>(1.0f, -1.0f, 0.0f),
-            DirectionalLightColor = new Vector3D<float>(0.5f, 0.0f, 0.0f)
+            DirectionalLightColor = new Vector3D<float>(1.0f, 0.0f, 0.0f)
         };
         renderer!.UpdateSceneInfo(sceneInfo);
 
@@ -130,6 +126,7 @@ class Program
         renderer.BeginFrame();
 
         renderer.DrawModel(computerModel, computerTransform!.Matrix);
+        renderer.DrawModel(cubeModel, cubeTransform!.Matrix);
 
         renderer.EndFrame();
     }

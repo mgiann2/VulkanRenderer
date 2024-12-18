@@ -17,6 +17,10 @@ vec3 ACESFilmicTonemap(vec3 color) {
     return clamp((color*(a*color+b))/(color*(c*color+d)+e), 0.0, 1.0);
 }
 
+vec3 ReinhardTonemap(vec3 color) {
+    return color / (color + vec3(1.0));
+}
+
 void main() {
     vec3 hdrColor = texture(albedoSampler, inTexCoord).rgb;
     vec3 bloomColor = texture(bloomSampler, inTexCoord).rgb;

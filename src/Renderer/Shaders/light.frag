@@ -10,6 +10,7 @@ layout (location = 1) in vec3 inLightPos;
 layout (location = 2) in vec3 inCameraPos;
 
 layout(location = 0) out vec4 outColor;
+layout (location = 1) out vec4 outThresholdColor;
 
 const float PI = 3.14159265359;
 const float SURFACE_REFLECTION = 0.04;
@@ -60,6 +61,12 @@ void main() {
     // compute output light
     vec3 outLight = (kD * albedo / PI + specular) * radiance * NdotL;
     outColor = vec4(outLight, 1.0);
+
+    float brighness = dot(outColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    if (brighness > 1.0)
+        outThresholdColor = vec4(outColor.rgb, 1.0);
+    else
+        outThresholdColor = vec4(0.0, 0.0, 0.0, 1.0);
 }
 
 float NormalDistribution(vec3 N, vec3 H, float roughness) {
@@ -69,7 +76,7 @@ float NormalDistribution(vec3 N, vec3 H, float roughness) {
     float NdotH2 = NdotH * NdotH;
 
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
+    denom = PI * denom * denom + 0.0001;
 
     return a2 / denom;
 }

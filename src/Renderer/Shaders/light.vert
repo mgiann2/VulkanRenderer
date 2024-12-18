@@ -22,7 +22,7 @@ layout (location = 2) out vec3 outCameraPos;
 
 void main() {
     outLightColor = light.color.rgb;
-    outLightPos = light.pos.rgb;
+    outLightPos = light.pos.xyz;
     outCameraPos = sceneInfo.cameraView[3].xyz;
 
     gl_Position = sceneInfo.cameraProj * sceneInfo.cameraView * light.model * vec4(inPos, 1.0f);

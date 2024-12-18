@@ -86,7 +86,7 @@ float NormalDistribution(vec3 N, vec3 H, float roughness) {
     float NdotH2 = NdotH * NdotH;
 
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
+    denom = PI * denom * denom + 0.0001;
 
     return a2 / denom;
 }
