@@ -29,6 +29,6 @@ void main() {
     vec3 T = normalize(vec3(pc.model * vec4(inTangent, 0.0)));
     vec3 N = normalize(vec3(pc.model * vec4(inNormal, 0.0)));
     T = normalize(T - dot(T, N) * N);
-    vec3 B = cross(T, N);
+    vec3 B = cross(N, T);
     outTBN = mat3(T, B, N);
 }

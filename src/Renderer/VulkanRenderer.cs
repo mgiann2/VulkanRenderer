@@ -60,6 +60,13 @@ public struct LightInfo
     [FieldOffset(80)]public Vector3D<float> Color;
 }
 
+[StructLayout(LayoutKind.Explicit)]
+public struct SolidColorObjectInfo
+{
+    [FieldOffset(0)]public Matrix4X4<float> Model;
+    [FieldOffset(64)]public Vector3D<float> Color;
+}
+
 unsafe public partial class VulkanRenderer
 {
     const string AssetsPath = "assets/";
@@ -86,7 +93,7 @@ unsafe public partial class VulkanRenderer
     };
 
     Mesh screenQuadMesh;
-    Mesh skyboxCubeMesh;
+    Mesh cubeMesh;
     Mesh sphereMesh;
 
     readonly Vk vk;
@@ -143,6 +150,7 @@ unsafe public partial class VulkanRenderer
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
     GraphicsPipeline lightingPipeline;
+    GraphicsPipeline solidColorPipeine;
     GraphicsPipeline skyboxPipeline;
     GraphicsPipeline bloom1Pipeline;
     GraphicsPipeline bloom2Pipeline;
@@ -220,6 +228,7 @@ unsafe public partial class VulkanRenderer
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
         compositionPipeline = CreateCompositionPipeline(compositionRenderStage.RenderPass);
         lightingPipeline = CreateLightingPipeline(compositionRenderStage.RenderPass);
+        solidColorPipeine = CreateSolidColorPipeline(compositionRenderStage.RenderPass);
         skyboxPipeline = CreateSkyboxPipeline(compositionRenderStage.RenderPass);
         bloom1Pipeline = CreateBloomPipeline(bloomRenderStage1.RenderPass);
         bloom2Pipeline = CreateBloomPipeline(bloomRenderStage2.RenderPass);
@@ -238,7 +247,7 @@ unsafe public partial class VulkanRenderer
         screenQuadMesh = PrimitiveMesh.CreateQuadMesh(this);
         
         // generate cube mesh
-        skyboxCubeMesh = PrimitiveMesh.CreateCubeMesh(this);
+        cubeMesh = PrimitiveMesh.CreateCubeMesh(this);
 
         // load sphere mesh for lighting
         sphereMesh = LoadMesh(SphereMeshPath);
@@ -299,9 +308,9 @@ unsafe public partial class VulkanRenderer
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 skyboxPipeline.Layout, 0, 2, skyboxDescriptorSets, 0, default);
 
-        Bind(skyboxCubeMesh.VertexBuffer, compositionCommandBuffer);
-        Bind(skyboxCubeMesh.IndexBuffer, compositionCommandBuffer);
-        vk.CmdDrawIndexed(compositionCommandBuffer, skyboxCubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        Bind(cubeMesh.VertexBuffer, compositionCommandBuffer);
+        Bind(cubeMesh.IndexBuffer, compositionCommandBuffer);
+        vk.CmdDrawIndexed(compositionCommandBuffer, cubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
         // draw gbuffer objects
         var descriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], screenTextureInfoDescriptorSets[currentFrame] };
@@ -313,6 +322,25 @@ unsafe public partial class VulkanRenderer
         Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffer);
         Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffer);
         vk.CmdDrawIndexed(compositionCommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+        // draw smalls cubes at each point light position
+        vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, solidColorPipeine.Pipeline);
+        vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
+                solidColorPipeine.Layout, 0, 1, descriptorSets, 0, default);
+        Bind(cubeMesh.VertexBuffer, compositionCommandBuffer);
+        Bind(cubeMesh.IndexBuffer, compositionCommandBuffer);
+
+        var scaleMatrix = Matrix4X4.CreateScale<float>(0.1f);
+        foreach (var light in Lights)
+        {
+            SolidColorObjectInfo lightCubeInfo = new(){ Model = scaleMatrix * Matrix4X4.CreateTranslation(light.Position) , Color = light.Color };
+
+            vk.CmdPushConstants(compositionCommandBuffer, solidColorPipeine.Layout,
+                                ShaderStageFlags.VertexBit, 0,
+                                (uint) Unsafe.SizeOf<SolidColorObjectInfo>(), &lightCubeInfo);
+
+            vk.CmdDrawIndexed(compositionCommandBuffer, cubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        }
 
         // draw point lights
         vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, lightingPipeline.Pipeline);

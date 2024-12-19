@@ -21,6 +21,9 @@ unsafe public partial class VulkanRenderer
     const string LightingVertexShaderFilename = "light.vert.spv";
     const string LightingFragmentShaderFilename = "light.frag.spv";
 
+    const string SolidColorVertexShaderFilename = "solid_color.vert.spv";
+    const string SolidColorFragmentShaderFilename = "solid_color.frag.spv";
+
     const string SkyboxVertexShaderFilename = "skybox.vert.spv";
     const string SkyboxFragmentShaderFilename = "skybox.frag.spv";
 
@@ -86,6 +89,24 @@ unsafe public partial class VulkanRenderer
                        .AddPushConstantRange((uint) Unsafe.SizeOf<LightInfo>(), 0, ShaderStageFlags.VertexBit);
 
         return pipelineBuilder.Build(renderPass, 0);
+    }
+
+    GraphicsPipeline CreateSolidColorPipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + SolidColorVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + SolidColorFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(CompositionPassColorAttachmentCount)
+                       .SetDepthStencilInfo(false, false, CompareOp.Less)
+                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddPushConstantRange((uint) Unsafe.SizeOf<SolidColorObjectInfo>(), 0, ShaderStageFlags.VertexBit);
+
+        return pipelineBuilder.Build(renderPass, 0);
+
     }
 
     GraphicsPipeline CreateSkyboxPipeline(RenderPass renderPass)
