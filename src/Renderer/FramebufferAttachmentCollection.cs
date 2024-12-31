@@ -31,7 +31,7 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
 
     private bool disposedValue;
 
-    public ColorAttachment(Device device, PhysicalDevice physicalDevice, Format format, Extent2D imageExtent)
+    public SingleColorAttachment(Device device, PhysicalDevice physicalDevice, Format format, Extent2D imageExtent)
     {
         Color = new ImageAttachment(device, physicalDevice, format, ImageUsageFlags.ColorAttachmentBit, imageExtent);
     }
@@ -47,7 +47,7 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
         }
     }
 
-    ~ColorAttachment()
+    ~SingleColorAttachment()
     {
         Dispose(disposing: false);
     }

@@ -3,8 +3,6 @@
 layout (set = 0, binding = 0) uniform SceneInfo {
     mat4 cameraView;
     mat4 cameraProj;
-    vec3 ambientLightColor;
-    float ambientLightStrength;
 } sceneInfo;
 
 layout (location = 0) in vec3 inPosition;

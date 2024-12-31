@@ -24,8 +24,8 @@ unsafe public partial class VulkanRenderer
     const string SolidColorVertexShaderFilename = "solid_color.vert.spv";
     const string SolidColorFragmentShaderFilename = "solid_color.frag.spv";
 
-    const string SkyboxVertexShaderFilename = "skybox.vert.spv";
-    const string SkyboxFragmentShaderFilename = "skybox.frag.spv";
+    const string SkyboxVertexShaderFilename = "cubemap.vert.spv";
+    const string SkyboxFragmentShaderFilename = "equirectangular_to_cubemap.frag.spv";
 
     const string BloomVertexShaderFilename = "bloom_blur.vert.spv";
     const string BloomFragmentShaderFilename = "bloom_blur.frag.spv";
