@@ -117,12 +117,16 @@ unsafe public partial class VulkanRenderer
     BloomAttachments bloomAttachments1;
     BloomAttachments bloomAttachments2;
     SwapChainAttachment[] swapChainAttachments;
+    SingleColorAttachment[] environmentMapAttachments;
+    SingleColorAttachment[] irradianceMapAttachments;
 
     RenderStage geometryRenderStage;
     RenderStage compositionRenderStage;
     RenderStage bloomRenderStage1;
     RenderStage bloomRenderStage2;
     RenderStage postProcessRenderStage;
+    RenderStage equirectangularToCubemapRenderStage;
+    RenderStage irradianceMapRenderStage;
 
     Buffer[] sceneInfoBuffers;
     DeviceMemory[] sceneInfoBuffersMemory;
@@ -155,6 +159,8 @@ unsafe public partial class VulkanRenderer
     GraphicsPipeline bloom1Pipeline;
     GraphicsPipeline bloom2Pipeline;
     GraphicsPipeline postProcessPipeline;
+    GraphicsPipeline equirectangularToCubemapPipeline;
+    GraphicsPipeline irradianceMapPipeline;
 
     CommandPool commandPool;
     CommandBuffer[] geometryCommandBuffers;
@@ -212,6 +218,8 @@ unsafe public partial class VulkanRenderer
         (bloomRenderStage1, bloomAttachments1) = CreateBloomRenderStage();
         (bloomRenderStage2, bloomAttachments2) = CreateBloomRenderStage();
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
+        (equirectangularToCubemapRenderStage, environmentMapAttachments) = CreateEquirectangularToCubemapRenderStage();
+        (irradianceMapRenderStage, irradianceMapAttachments) = CreateIrradianceMapRenderStage();
 
         // Create composition pass descriptor set
         sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets();
@@ -997,6 +1005,54 @@ unsafe public partial class VulkanRenderer
         renderStage.ClearValues.AddRange(clearColors);
 
         return (renderStage, swapChainAttachments);
+    }
+
+    (RenderStage, SingleColorAttachment[]) CreateEquirectangularToCubemapRenderStage()
+    {
+        SingleColorAttachment[] cubefaceAttachments = new SingleColorAttachment[6];
+        for (int i = 0; i < 6; i++)
+        {
+            cubefaceAttachments[i] = new SingleColorAttachment(Device, PhysicalDevice, Format.R16G16B16Sfloat, new Extent2D(512, 512));
+        }
+
+        RenderPassBuilder renderPassBuilder = new(Device);
+        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal);
+        
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(Device, renderPass, cubefaceAttachments, commandPool, new Extent2D(512, 512), 6, MaxFramesInFlight);
+
+        var clearColors = new ClearValue[]
+        {
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } }, 
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, cubefaceAttachments);
+    }
+
+    (RenderStage, SingleColorAttachment[]) CreateIrradianceMapRenderStage()
+    {
+        SingleColorAttachment[] cubefaceAttachments = new SingleColorAttachment[6];
+        for (int i = 0; i < 6; i++)
+        {
+            cubefaceAttachments[i] = new SingleColorAttachment(Device, PhysicalDevice, Format.R16G16B16Sfloat, new Extent2D(32, 32));
+        }
+
+        RenderPassBuilder renderPassBuilder = new(Device);
+        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal);
+        
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(Device, renderPass, cubefaceAttachments, commandPool, new Extent2D(32, 32), 6, MaxFramesInFlight);
+
+        var clearColors = new ClearValue[]
+        {
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } }, 
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, cubefaceAttachments);
     }
 
     public void BindMaterial(Material material)

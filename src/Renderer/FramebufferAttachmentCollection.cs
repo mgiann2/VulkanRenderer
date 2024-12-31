@@ -9,6 +9,56 @@ public interface IFramebufferAttachmentCollection : IDisposable
     public ImageView[] Attachments { get; }
 }
 
+unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
+{
+    public ImageAttachment Color { get; }
+
+    public IReadOnlyList<IFramebufferAttachment> ColorAttachments 
+    {
+        get
+        {
+            return new IFramebufferAttachment[] { Color };
+        }
+    }
+    public IFramebufferAttachment? DepthAttachment { get => null; } 
+    public ImageView[] Attachments
+    {
+        get
+        {
+            return new ImageView[] { Color.ImageView };
+        }
+    }
+
+    private bool disposedValue;
+
+    public ColorAttachment(Device device, PhysicalDevice physicalDevice, Format format, Extent2D imageExtent)
+    {
+        Color = new ImageAttachment(device, physicalDevice, format, ImageUsageFlags.ColorAttachmentBit, imageExtent);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            // free unmanaged resources (unmanaged objects) and override finalizer
+            Color.Dispose();
+
+            disposedValue = true;
+        }
+    }
+
+    ~ColorAttachment()
+    {
+        Dispose(disposing: false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+}
+
 unsafe public class GBufferAttachments : IFramebufferAttachmentCollection
 {
     public ImageAttachment Albedo { get; }
@@ -226,3 +276,4 @@ unsafe public class SwapChainAttachment : IFramebufferAttachmentCollection
         GC.SuppressFinalize(this);
     }
 }
+
