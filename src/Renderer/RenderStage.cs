@@ -13,19 +13,19 @@ unsafe public class RenderStage : IDisposable
     private Vk vk;
     private CommandPool commandPool;
     private Device device;
-    private Extent2D swapchainExtent;
+    private Extent2D extent;
 
     bool disposedValue;
 
     public RenderPass RenderPass { get; }
     public List<ClearValue> ClearValues = new();
 
-    public RenderStage(Device device, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, CommandPool commandPool, Extent2D swapchainExtent, uint framebufferCount, uint framesInFlight)
+    public RenderStage(Device device, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, CommandPool commandPool, Extent2D extent, uint framebufferCount, uint framesInFlight)
     {
         vk = VulkanHelper.Vk;
         this.device = device;
         this.commandPool = commandPool;
-        this.swapchainExtent = swapchainExtent;
+        this.extent = extent;
 
         this.RenderPass = renderPass;
         this.framebufferAttachmentCollections = framebufferAttachmentCollections;
@@ -40,8 +40,8 @@ unsafe public class RenderStage : IDisposable
                 SType = StructureType.FramebufferCreateInfo,
                 AttachmentCount = (uint) attachments.Length,
                 RenderPass = renderPass,
-                Width = swapchainExtent.Width,
-                Height = swapchainExtent.Height,
+                Width = extent.Width,
+                Height = extent.Height,
                 Layers = 1
             };
             fixed (ImageView* attachmentsPtr = attachments)
@@ -114,7 +114,7 @@ unsafe public class RenderStage : IDisposable
             Framebuffer = framebuffers[framebufferIndex],
             RenderArea = 
             {
-                Extent = swapchainExtent,
+                Extent = extent,
                 Offset = { X = 0, Y = 0 }
             }
         };
@@ -130,8 +130,8 @@ unsafe public class RenderStage : IDisposable
         {
             X = 0.0f,
             Y = 0.0f,
-            Width = swapchainExtent.Width,
-            Height = swapchainExtent.Height,
+            Width = extent.Width,
+            Height = extent.Height,
             MinDepth = 0.0f,
             MaxDepth = 1.0f,
         };
@@ -140,7 +140,7 @@ unsafe public class RenderStage : IDisposable
         Rect2D scissor = new()
         {
             Offset = { X = 0, Y = 0 },
-            Extent = swapchainExtent
+            Extent = extent
         };
         vk.CmdSetScissor(commandBuffers[commandBufferIndex], 0, 1, in scissor);
     }

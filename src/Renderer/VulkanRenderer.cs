@@ -241,6 +241,8 @@ unsafe public partial class VulkanRenderer
         bloom1Pipeline = CreateBloomPipeline(bloomRenderStage1.RenderPass);
         bloom2Pipeline = CreateBloomPipeline(bloomRenderStage2.RenderPass);
         postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
+        equirectangularToCubemapPipeline = CreateEquirectangularToCubemapPipeline(equirectangularToCubemapRenderStage.RenderPass);
+        irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
 
         // create commnad pool and buffers
         CreateCommandBuffers(out geometryCommandBuffers, out compositionCommandBuffers, out postProcessingCommandBuffers);
@@ -1016,7 +1018,17 @@ unsafe public partial class VulkanRenderer
         }
 
         RenderPassBuilder renderPassBuilder = new(Device);
-        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal);
+        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal)
+                         .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+                                        DependencyFlags.None)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+                                        DependencyFlags.None);
         
         RenderPass renderPass = renderPassBuilder.Build();
 
@@ -1040,7 +1052,17 @@ unsafe public partial class VulkanRenderer
         }
 
         RenderPassBuilder renderPassBuilder = new(Device);
-        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal);
+        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal)
+                         .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+                                        DependencyFlags.None)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+                                        DependencyFlags.None);
         
         RenderPass renderPass = renderPassBuilder.Build();
 

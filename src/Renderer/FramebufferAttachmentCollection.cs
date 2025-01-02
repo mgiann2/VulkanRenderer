@@ -12,6 +12,7 @@ public interface IFramebufferAttachmentCollection : IDisposable
 unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
 {
     public ImageAttachment Color { get; }
+    public ImageAttachment Depth { get; }
 
     public IReadOnlyList<IFramebufferAttachment> ColorAttachments 
     {
@@ -20,12 +21,12 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
             return new IFramebufferAttachment[] { Color };
         }
     }
-    public IFramebufferAttachment? DepthAttachment { get => null; } 
+    public IFramebufferAttachment DepthAttachment { get => Depth; } 
     public ImageView[] Attachments
     {
         get
         {
-            return new ImageView[] { Color.ImageView };
+            return new ImageView[] { Color.ImageView, Depth.ImageView };
         }
     }
 
@@ -34,6 +35,7 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
     public SingleColorAttachment(Device device, PhysicalDevice physicalDevice, Format format, Extent2D imageExtent)
     {
         Color = new ImageAttachment(device, physicalDevice, format, ImageUsageFlags.ColorAttachmentBit, imageExtent);
+        Depth = new ImageAttachment(device, physicalDevice, VulkanHelper.FindDepthFormat(physicalDevice), ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -42,6 +44,7 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
             Color.Dispose();
+            Depth.Dispose();
 
             disposedValue = true;
         }

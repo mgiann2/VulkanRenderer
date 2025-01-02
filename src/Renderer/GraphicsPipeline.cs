@@ -33,10 +33,17 @@ unsafe public partial class VulkanRenderer
     const string PostProcessVertexShaderFilename = "postprocess.vert.spv";
     const string PostProcessFragmentShaderFilename = "postprocess.frag.spv";
 
+    const string EquirectangularToCubemapVertexShaderFilename = "cubemap.vert.spv";
+    const string EquirectangularToCubemapFragmentShaderFilename = "equirectangular_to_cubemap.frag.spv";
+
+    const string IrradianceMapVertexShaderFilename = "cubemap.vert.spv";
+    const string IrradianceMapFragmentShaderFilename = "irradiance.frag.spv";
+
     const uint GeometryPassColorAttachmentCount = 4;
     const uint CompositionPassColorAttachmentCount = 2;
     const uint BloomPassColorAttachmentCount = 1;
     const uint PostProcessColorAttachmentCount = 1;
+    const uint CubemapColorAttachmentCount = 1;
 
     GraphicsPipeline CreateGeometryPipeline(RenderPass renderPass)
     {
@@ -159,6 +166,37 @@ unsafe public partial class VulkanRenderer
 
         return pipelineBuilder.Build(renderPass, 0);
     }
+
+    GraphicsPipeline CreateEquirectangularToCubemapPipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + EquirectangularToCubemapVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + EquirectangularToCubemapFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(CubemapColorAttachmentCount)
+                       .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
+
+        return pipelineBuilder.Build(renderPass, 0);
+    }
+
+    GraphicsPipeline CreateIrradiancePipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + IrradianceMapVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + IrradianceMapFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(Device);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(CubemapColorAttachmentCount)
+                       .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
+
+        return pipelineBuilder.Build(renderPass, 0);    }
 
     // Scene Info Descriptor Set
     // -------------------------
