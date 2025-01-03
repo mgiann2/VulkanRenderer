@@ -1,5 +1,7 @@
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
+using Semaphore = Silk.NET.Vulkan.Semaphore;
+using Fence = Silk.NET.Vulkan.Fence;
 
 namespace Renderer;
 
@@ -79,12 +81,12 @@ unsafe public static class VulkanHelper
         throw new Exception("Unable to find suitable memory type!");
     }
 
-    public static (Buffer[], DeviceMemory[]) CreateUniformBuffers(Device device, PhysicalDevice physicalDevice, ulong bufferSize, uint maxFramesInFlight)
+    public static (Buffer[], DeviceMemory[]) CreateUniformBuffers(Device device, PhysicalDevice physicalDevice, ulong bufferSize, uint bufferCount)
     {
-        var uniformBuffers = new Buffer[maxFramesInFlight];
-        var uniformBuffersMemory = new DeviceMemory[maxFramesInFlight];
+        var uniformBuffers = new Buffer[bufferCount];
+        var uniformBuffersMemory = new DeviceMemory[bufferCount];
 
-        for (int i = 0; i < maxFramesInFlight; i++)
+        for (int i = 0; i < bufferCount; i++)
         {
             (uniformBuffers[i], uniformBuffersMemory[i]) = CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.UniformBufferBit,
                          MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
@@ -141,6 +143,37 @@ unsafe public static class VulkanHelper
         }
 
         return textureSampler;
+    }
+
+    public static Semaphore CreateSemaphore(Device device)
+    {
+        SemaphoreCreateInfo createInfo = new()
+        {
+            SType = StructureType.SemaphoreCreateInfo
+        };
+
+        if (Vk.CreateSemaphore(device, in createInfo, null, out var semaphore) != Result.Success)
+        {
+            throw new Exception("Failed to create semaphore!");
+        }
+
+        return semaphore;
+    }
+
+    public static Fence CreateFence(Device device, bool isSignaled)
+    {
+        FenceCreateInfo createInfo = new()
+        {
+            SType = StructureType.FenceCreateInfo,
+            Flags = isSignaled ? FenceCreateFlags.SignaledBit : FenceCreateFlags.None
+        };
+
+        if (Vk.CreateFence(device, in createInfo, null, out var fence) != Result.Success)
+        {
+            throw new Exception("Failed to create fence!");
+        }
+
+        return fence;
     }
 
     public static (Image, DeviceMemory) CreateImage(Device device, PhysicalDevice physicalDevice, 
