@@ -11,10 +11,9 @@ public interface IFramebufferAttachment
 unsafe public class ImageAttachment : IFramebufferAttachment, IDisposable
 {
     public Format Format { get; } 
+    public Image Image { get; }
+    public DeviceMemory ImageMemory { get; }
     public ImageView ImageView { get; } 
-
-    private Image image; 
-    private DeviceMemory imageMemory;
     
     private Device device;
     private bool disposedValue;
@@ -24,7 +23,7 @@ unsafe public class ImageAttachment : IFramebufferAttachment, IDisposable
         this.device = device;
 
         ImageAspectFlags aspectFlags = ImageAspectFlags.None;
-        if (usage == ImageUsageFlags.ColorAttachmentBit)
+        if (usage == ImageUsageFlags.ColorAttachmentBit || usage == (ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit))
         {
             aspectFlags = ImageAspectFlags.ColorBit;
         }
@@ -33,12 +32,12 @@ unsafe public class ImageAttachment : IFramebufferAttachment, IDisposable
             aspectFlags = ImageAspectFlags.DepthBit;
         }
 
-        (image, imageMemory) = VulkanHelper.CreateImage(device, physicalDevice, 
-                (uint) imageExtent.Width, (uint) imageExtent.Height,
+        (Image, ImageMemory) = VulkanHelper.CreateImage(device, physicalDevice, 
+                (uint) imageExtent.Width, (uint) imageExtent.Height, 
                 format, ImageTiling.Optimal, usage | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
 
         Format = format;
-        ImageView = VulkanHelper.CreateImageView(device, image, format, aspectFlags);
+        ImageView = VulkanHelper.CreateImageView(device, Image, format, aspectFlags);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -47,8 +46,8 @@ unsafe public class ImageAttachment : IFramebufferAttachment, IDisposable
         if (!disposedValue)
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyImage(device, image, null);
-            vk.FreeMemory(device, imageMemory, null);
+            vk.DestroyImage(device, Image, null);
+            vk.FreeMemory(device, ImageMemory, null);
             vk.DestroyImageView(device, ImageView, null);
 
             disposedValue = true;

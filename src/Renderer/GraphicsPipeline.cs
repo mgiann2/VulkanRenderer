@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
+using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Renderer;
 
@@ -25,7 +26,7 @@ unsafe public partial class VulkanRenderer
     const string SolidColorFragmentShaderFilename = "solid_color.frag.spv";
 
     const string SkyboxVertexShaderFilename = "cubemap.vert.spv";
-    const string SkyboxFragmentShaderFilename = "equirectangular_to_cubemap.frag.spv";
+    const string SkyboxFragmentShaderFilename = "skybox.frag.spv";
 
     const string BloomVertexShaderFilename = "bloom_blur.vert.spv";
     const string BloomFragmentShaderFilename = "bloom_blur.frag.spv";
@@ -178,6 +179,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(CubemapColorAttachmentCount)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -194,9 +196,11 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(CubemapColorAttachmentCount)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
-        return pipelineBuilder.Build(renderPass, 0);    }
+        return pipelineBuilder.Build(renderPass, 0);    
+    }
 
     // Scene Info Descriptor Set
     // -------------------------
@@ -227,12 +231,12 @@ unsafe public partial class VulkanRenderer
         return layout;
     }
 
-    DescriptorPool CreateSceneInfoDescriptorPool()
+    DescriptorPool CreateSceneInfoDescriptorPool(uint maxSets)
     {
         DescriptorPoolSize poolSize = new()
         {
             Type = DescriptorType.UniformBuffer,
-            DescriptorCount = (uint) MaxFramesInFlight
+            DescriptorCount = maxSets
         };
 
         DescriptorPoolCreateInfo poolInfo = new()
@@ -240,7 +244,7 @@ unsafe public partial class VulkanRenderer
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = (uint) MaxFramesInFlight,
+            MaxSets = maxSets,
             Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
@@ -252,11 +256,12 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateSceneInfoDescriptorSets()
+    DescriptorSet[] CreateSceneInfoDescriptorSets(Buffer[] sceneInfoBuffers)
     {
-        var descriptorSets = new DescriptorSet[MaxFramesInFlight];
+        int setCount = sceneInfoBuffers.Length; 
+        var descriptorSets = new DescriptorSet[setCount];
 
-        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+        var layouts = new DescriptorSetLayout[setCount];
         Array.Fill(layouts, sceneInfoDescriptorSetLayout);
         
         fixed (DescriptorSetLayout* layoutsPtr = layouts)
@@ -278,7 +283,7 @@ unsafe public partial class VulkanRenderer
             }
         }
 
-        for (int i = 0; i < MaxFramesInFlight; i++)
+        for (int i = 0; i < setCount; i++)
         {
             DescriptorBufferInfo bufferInfo = new()
             {
@@ -739,7 +744,7 @@ unsafe public partial class VulkanRenderer
         }
     }
 
-    // Skybox Texture Descriptor Set
+    // Single Texture Descriptor Set
     // -----------------------------
 
     DescriptorSetLayout CreateSingleTextureDescriptorSetLayout()
@@ -773,7 +778,7 @@ unsafe public partial class VulkanRenderer
         DescriptorPoolSize poolSize = new()
         {
             Type = DescriptorType.CombinedImageSampler,
-            DescriptorCount = (uint) MaxFramesInFlight * maxSets
+            DescriptorCount = maxSets
         };
 
         DescriptorPoolCreateInfo poolInfo = new()
@@ -781,7 +786,7 @@ unsafe public partial class VulkanRenderer
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = (uint) MaxFramesInFlight * maxSets,
+            MaxSets = maxSets,
             Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
@@ -793,11 +798,11 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateSingleTextureDescriptorSets(ImageView imageView)
+    DescriptorSet[] CreateSingleTextureDescriptorSets(ImageView imageView, uint setCount)
     {
-        var descriptorSets = new DescriptorSet[MaxFramesInFlight];
+        var descriptorSets = new DescriptorSet[setCount];
 
-        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+        var layouts = new DescriptorSetLayout[setCount];
         Array.Fill(layouts, singleTextureDescriptorSetLayout);
         
         fixed (DescriptorSetLayout* layoutsPtr = layouts)
@@ -819,7 +824,7 @@ unsafe public partial class VulkanRenderer
             }
         }
 
-        for (int i = 0; i < MaxFramesInFlight; i++)
+        for (int i = 0; i < setCount; i++)
         {
             DescriptorImageInfo colorInfo = new()
             {
@@ -847,7 +852,7 @@ unsafe public partial class VulkanRenderer
 
     void UpdateSingleTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView imageView)
     {
-        for (int i = 0; i < MaxFramesInFlight; i++)
+        for (int i = 0; i < descriptorSets.Length; i++)
         {
             DescriptorImageInfo colorInfo = new()
             {

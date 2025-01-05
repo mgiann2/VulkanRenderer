@@ -147,9 +147,7 @@ unsafe public partial class VulkanRenderer
     DescriptorSet[] thresholdTextureDescriptorSets;
     DescriptorSet[] bloomPass1OutputTextureDescriptorSets;
     DescriptorSet[] bloomPass2OutputTextureDescriptorSets;
-
-    Texture skyboxTexture;
-    DescriptorSet[] skyboxTextureDescriptorSets;
+    DescriptorSet skyboxTextureDescriptorSets;
 
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
@@ -171,6 +169,9 @@ unsafe public partial class VulkanRenderer
 
     Semaphore[] imageAvailableSemaphores;
     Fence[] inFlightFences;
+
+    Cubemap skyboxCubemap;
+    Cubemap irradianceCubemap;
 
     uint currentFrame;
     bool framebufferResized = false;
@@ -201,10 +202,10 @@ unsafe public partial class VulkanRenderer
         textureSampler = VulkanHelper.CreateTextureSampler(Device, PhysicalDevice);
 
         // Create descriptor pools
-        sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool();
+        sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool(MaxFramesInFlight + 6);
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxGBufferDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
-        singleTextureDescriptorPool = CreateSingleTextureDescriptorPool(10);
+        singleTextureDescriptorPool = CreateSingleTextureDescriptorPool(20);
 
         // Create descriptor set layouts
         sceneInfoDescriptorSetLayout = CreateSceneInfoDescriptorSetLayout();
@@ -212,7 +213,7 @@ unsafe public partial class VulkanRenderer
         screenTextureDescriptorSetLayout = CreateScreenTexureInfoDescriptorSetLayout();
         singleTextureDescriptorSetLayout = CreateSingleTextureDescriptorSetLayout();
 
-        // create render stages
+        // Create render stages
         (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
         (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
         (bloomRenderStage1, bloomAttachments1) = CreateBloomRenderStage();
@@ -222,15 +223,15 @@ unsafe public partial class VulkanRenderer
         (irradianceMapRenderStage, irradianceMapAttachments) = CreateIrradianceMapRenderStage();
 
         // Create composition pass descriptor set
-        sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets();
+        sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(sceneInfoBuffers);
         screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments.Albedo.ImageView,
                                                                                 gBufferAttachments.Normal.ImageView,
                                                                                 gBufferAttachments.AoRoughnessMetalness.ImageView,
                                                                                 gBufferAttachments.Position.ImageView);
-        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView);
-        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView);
-        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView);
-        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView);
+        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView, MaxFramesInFlight);
+        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView, MaxFramesInFlight);
+        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, MaxFramesInFlight);
+        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, MaxFramesInFlight);
 
         // Create pipelines
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
@@ -244,23 +245,22 @@ unsafe public partial class VulkanRenderer
         equirectangularToCubemapPipeline = CreateEquirectangularToCubemapPipeline(equirectangularToCubemapRenderStage.RenderPass);
         irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
 
-        // create commnad pool and buffers
+        // Create commnad pool and buffers
         CreateCommandBuffers(out geometryCommandBuffers, out compositionCommandBuffers, out postProcessingCommandBuffers);
 
         CreateSyncObjects(out imageAvailableSemaphores, out inFlightFences);
 
-        // Create skybox descriptor sets
-        skyboxTexture = new Texture(this, SkyboxTexturePath);
-        skyboxTextureDescriptorSets = CreateSingleTextureDescriptorSets(skyboxTexture.TextureImageView);
-
-        // generate quad mesh
+        // Load primitive meshes
         screenQuadMesh = PrimitiveMesh.CreateQuadMesh(this);
-        
-        // generate cube mesh
         cubeMesh = PrimitiveMesh.CreateCubeMesh(this);
-
-        // load sphere mesh for lighting
         sphereMesh = LoadMesh(SphereMeshPath);
+
+        // generate irradiance cubemap
+        skyboxCubemap = CreateSkyboxCubemap();
+        irradianceCubemap = CreateIrradianceCubemap(skyboxCubemap);
+
+        // Create skybox descriptor sets
+        skyboxTextureDescriptorSets = CreateSingleTextureDescriptorSets(skyboxCubemap.CubemapImageView, 1)[0];
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -292,7 +292,8 @@ unsafe public partial class VulkanRenderer
         // Begin Geometry Render Pass
         // --------------------------
         var geometryCommandBuffer = geometryRenderStage.GetCommandBuffer(currentFrame);
-        geometryRenderStage.BeginCommands(currentFrame, 0);
+        geometryRenderStage.BeginCommands(currentFrame);
+        geometryRenderStage.BeginRenderPass(currentFrame, 0);
         
         vk.CmdBindPipeline(geometryCommandBuffer, PipelineBindPoint.Graphics, geometryPipeline.Pipeline);
 
@@ -304,16 +305,18 @@ unsafe public partial class VulkanRenderer
     {
         if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new one!");
 
-        // End geometry render pass
+        // End geometry render stage
+        geometryRenderStage.EndRenderPass(currentFrame);
         geometryRenderStage.EndCommands(currentFrame);
         
         // Begin composition render pass
         // -----------------------------
-        compositionRenderStage.BeginCommands(currentFrame, 0);
+        compositionRenderStage.BeginCommands(currentFrame);
+        compositionRenderStage.BeginRenderPass(currentFrame, 0);
         var compositionCommandBuffer = compositionRenderStage.GetCommandBuffer(currentFrame);
 
         // draw skybox
-        var skyboxDescriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], skyboxTextureDescriptorSets[currentFrame] };
+        var skyboxDescriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], skyboxTextureDescriptorSets };
         vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, skyboxPipeline.Pipeline);
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 skyboxPipeline.Layout, 0, 2, skyboxDescriptorSets, 0, default);
@@ -368,11 +371,13 @@ unsafe public partial class VulkanRenderer
             vk.CmdDrawIndexed(compositionCommandBuffer, sphereMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
         }
 
+        compositionRenderStage.EndRenderPass(currentFrame);
         compositionRenderStage.EndCommands(currentFrame);
 
         // Begin bloom render passes
         // -------------------------
-        bloomRenderStage1.BeginCommands(currentFrame, 0);
+        bloomRenderStage1.BeginCommands(currentFrame);
+        bloomRenderStage1.BeginRenderPass(currentFrame, 0);
         var bloom1CommandBuffer = bloomRenderStage1.GetCommandBuffer(currentFrame);
 
         var bloom1DescriptorSet = stackalloc[] { thresholdTextureDescriptorSets[currentFrame] };
@@ -388,9 +393,11 @@ unsafe public partial class VulkanRenderer
         Bind(screenQuadMesh.IndexBuffer, bloom1CommandBuffer);
         vk.CmdDrawIndexed(bloom1CommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
+        bloomRenderStage1.EndRenderPass(currentFrame);
         bloomRenderStage1.EndCommands(currentFrame);
 
-        bloomRenderStage2.BeginCommands(currentFrame, 0);
+        bloomRenderStage2.BeginCommands(currentFrame);
+        bloomRenderStage2.BeginRenderPass(currentFrame, 0);
         var bloom2CommandBuffer = bloomRenderStage2.GetCommandBuffer(currentFrame);
 
         var bloom2DescriptorSet = stackalloc[] { bloomPass1OutputTextureDescriptorSets[currentFrame] };
@@ -406,11 +413,13 @@ unsafe public partial class VulkanRenderer
         Bind(screenQuadMesh.IndexBuffer, bloom2CommandBuffer);
         vk.CmdDrawIndexed(bloom2CommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
+        bloomRenderStage2.EndRenderPass(currentFrame);
         bloomRenderStage2.EndCommands(currentFrame);
 
         // Begin post processing render pass
         // ---------------------------------
-        postProcessRenderStage.BeginCommands(currentFrame, imageIndex);
+        postProcessRenderStage.BeginCommands(currentFrame);
+        postProcessRenderStage.BeginRenderPass(currentFrame, imageIndex);
         var postProcessCommandBuffer = postProcessRenderStage.GetCommandBuffer(currentFrame);
 
         var postProcessDescriptorSets = stackalloc[] { compositionOutputTextureDescriptorSets[currentFrame], bloomPass2OutputTextureDescriptorSets[currentFrame] };
@@ -422,6 +431,7 @@ unsafe public partial class VulkanRenderer
         Bind(screenQuadMesh.IndexBuffer, postProcessCommandBuffer);
         vk.CmdDrawIndexed(postProcessCommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
+        postProcessRenderStage.EndRenderPass(currentFrame);
         postProcessRenderStage.EndCommands(currentFrame);
 
         // submit geometry commands
@@ -483,7 +493,7 @@ unsafe public partial class VulkanRenderer
         vk.UnmapMemory(Device, sceneInfoBuffersMemory[currentFrame]);
     }
 
-    public void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout)
+    public void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout, uint layers = 1)
     {
         var commandBuffer = BeginSingleTimeCommand();
 
@@ -501,7 +511,7 @@ unsafe public partial class VulkanRenderer
                 BaseMipLevel = 0,
                 LevelCount = 1,
                 BaseArrayLayer = 0,
-                LayerCount = 1
+                LayerCount = layers
             },
         };
 
@@ -535,7 +545,7 @@ unsafe public partial class VulkanRenderer
         EndSingleTimeCommand(commandBuffer);
     }
 
-    public void CopyBufferToImage(Buffer buffer, Image image, uint width, uint height)
+    public void CopyBufferToImage(Buffer buffer, Image image, uint width, uint height, uint layers)
     {
         var commandBuffer = BeginSingleTimeCommand();
 
@@ -549,7 +559,7 @@ unsafe public partial class VulkanRenderer
                 AspectMask = ImageAspectFlags.ColorBit,
                 MipLevel = 0,
                 BaseArrayLayer = 0,
-                LayerCount = 1
+                LayerCount = layers
             },
             ImageOffset = new() { X = 0, Y = 0, Z = 0 },
             ImageExtent = new() { Width = width, Height = height, Depth = 1 }
@@ -573,6 +583,205 @@ unsafe public partial class VulkanRenderer
     void OnFramebufferResize(Vector2D<int> framebufferSize)
     {
         framebufferResized = true;
+    }
+
+    Cubemap CreateSkyboxCubemap()
+    {
+        // Create descriptor sets
+        Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
+        {
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
+        };
+        Matrix4X4<float> projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView(MathF.PI / 2.0f, 1.0f, 0.1f, 100.0f);
+
+        (Buffer[] uniformBuffers, DeviceMemory[] uniformBuffersMemory) = VulkanHelper.CreateUniformBuffers(Device, PhysicalDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), 6);
+        for (int i = 0; i < 6; i++)
+        {
+            SceneInfo sceneInfo = new()
+            {
+                CameraView = viewMatrices[i],
+                CameraProjection = projectionMatrix
+            };
+
+            void* data;
+            vk.MapMemory(Device, uniformBuffersMemory[i], 0, (ulong) Unsafe.SizeOf<SceneInfo>(), MemoryMapFlags.None, &data);
+            new Span<SceneInfo>(data, 1)[0] = sceneInfo;
+            vk.UnmapMemory(Device, uniformBuffersMemory[i]);
+        }
+        DescriptorSet[] sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(uniformBuffers);
+        var skyboxTexture = new Texture(this, SkyboxTexturePath);
+        DescriptorSet equirectangularMapDescriptorSet = CreateSingleTextureDescriptorSets(skyboxTexture.TextureImageView, 1)[0];
+
+        // Begin equirectangular to cubemap render pass
+        equirectangularToCubemapRenderStage.ResetCommandBuffer(0);
+        equirectangularToCubemapRenderStage.BeginCommands(0);
+        var cubemapCommandBuffer = equirectangularToCubemapRenderStage.GetCommandBuffer(0);
+
+        for (uint i = 0; i < 6; i++)
+        {
+            equirectangularToCubemapRenderStage.BeginRenderPass(0, i);
+
+            vk.CmdBindPipeline(cubemapCommandBuffer, PipelineBindPoint.Graphics, equirectangularToCubemapPipeline.Pipeline);
+            
+            var sceneInfoDescriptorSet = sceneInfoDescriptorSets[i];
+            DescriptorSet* descriptorSets = stackalloc[] { sceneInfoDescriptorSet, equirectangularMapDescriptorSet };
+            vk.CmdBindDescriptorSets(cubemapCommandBuffer, PipelineBindPoint.Graphics,
+                    equirectangularToCubemapPipeline.Layout, 0, 2, descriptorSets, 0, default);
+
+            Bind(cubeMesh.VertexBuffer, cubemapCommandBuffer);
+            Bind(cubeMesh.IndexBuffer, cubemapCommandBuffer);
+            vk.CmdDrawIndexed(cubemapCommandBuffer, cubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+            equirectangularToCubemapRenderStage.EndRenderPass(0);
+        }
+
+        equirectangularToCubemapRenderStage.EndCommands(0);
+        equirectangularToCubemapRenderStage.SubmitCommands(graphicsQueue, 0, new Semaphore[] {});
+        vk.QueueWaitIdle(graphicsQueue);
+
+        Image[] environmentMapImages = environmentMapAttachments.Select((attachment) => attachment.Color.Image).ToArray();
+        var environmentCubemap = ImagesToCubeMap(environmentMapImages, new Extent2D() { Width = 512, Height = 512 });
+
+        // free resources
+        vk.FreeDescriptorSets(Device, singleTextureDescriptorPool, 1, &equirectangularMapDescriptorSet);
+
+        fixed (DescriptorSet* descriptorSetsPtr = sceneInfoDescriptorSets)
+            vk.FreeDescriptorSets(Device, sceneInfoDescriptorPool, 6, descriptorSetsPtr);
+
+        for (int i = 0; i < 6; i++)
+        {
+            vk.DestroyBuffer(Device, uniformBuffers[i], null);
+            vk.FreeMemory(Device, uniformBuffersMemory[i], null);
+        }
+
+        return environmentCubemap;
+    }
+
+    Cubemap CreateIrradianceCubemap(Cubemap environmentCubemap)
+    {
+        // Create descriptor sets
+        Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
+        {
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
+        };
+        Matrix4X4<float> projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView(MathF.PI / 2.0f, 1.0f, 0.1f, 10.0f);
+
+        (Buffer[] uniformBuffers, DeviceMemory[] uniformBuffersMemory) = VulkanHelper.CreateUniformBuffers(Device, PhysicalDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), 6);
+        for (int i = 0; i < 6; i++)
+        {
+            SceneInfo sceneInfo = new()
+            {
+                CameraView = viewMatrices[i],
+                CameraProjection = projectionMatrix
+            };
+
+            void* data;
+            vk.MapMemory(Device, uniformBuffersMemory[i], 0, (ulong) Unsafe.SizeOf<SceneInfo>(), MemoryMapFlags.None, &data);
+            new Span<SceneInfo>(data, 1)[0] = sceneInfo;
+            vk.UnmapMemory(Device, uniformBuffersMemory[i]);
+        }
+        DescriptorSet[] sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(uniformBuffers);
+
+        var environmentMapDescriptorSet = CreateSingleTextureDescriptorSets(environmentCubemap.CubemapImageView, 1)[0];
+
+        // Begin irradiance map render pass
+        irradianceMapRenderStage.ResetCommandBuffer(0);
+        irradianceMapRenderStage.BeginCommands(0);
+        var irradianceCommandBuffer = irradianceMapRenderStage.GetCommandBuffer(0);
+
+        for (uint i = 0; i < 6; i++)
+        {
+            irradianceMapRenderStage.BeginRenderPass(0, i);
+
+            vk.CmdBindPipeline(irradianceCommandBuffer, PipelineBindPoint.Graphics, irradianceMapPipeline.Pipeline);
+            Bind(cubeMesh.VertexBuffer, irradianceCommandBuffer);
+            Bind(cubeMesh.IndexBuffer, irradianceCommandBuffer);
+
+            var sceneInfoDescriptorSet = sceneInfoDescriptorSets[i];
+            DescriptorSet* descriptorSets = stackalloc[] { sceneInfoDescriptorSet, environmentMapDescriptorSet };
+            vk.CmdBindDescriptorSets(irradianceCommandBuffer, PipelineBindPoint.Graphics,
+                    irradianceMapPipeline.Layout, 0, 2, descriptorSets, 0, default);
+
+            vk.CmdDrawIndexed(irradianceCommandBuffer, cubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+
+            irradianceMapRenderStage.EndRenderPass(0);
+        }
+
+        irradianceMapRenderStage.EndCommands(0);
+        irradianceMapRenderStage.SubmitCommands(graphicsQueue, 0, new Semaphore[] {});
+        vk.QueueWaitIdle(graphicsQueue);
+
+        Image[] irradianceMapImages = irradianceMapAttachments.Select((attachment) => attachment.Color.Image).ToArray();
+        var irradianceMap = ImagesToCubeMap(irradianceMapImages, new Extent2D() { Width = 32, Height = 32 });
+
+        // free resources
+        vk.FreeDescriptorSets(Device, singleTextureDescriptorPool, 1, &environmentMapDescriptorSet);
+
+        fixed (DescriptorSet* descriptorSetsPtr = sceneInfoDescriptorSets)
+            vk.FreeDescriptorSets(Device, sceneInfoDescriptorPool, 6, descriptorSetsPtr);
+
+        for (int i = 0; i < 6; i++)
+        {
+            vk.DestroyBuffer(Device, uniformBuffers[i], null);
+            vk.FreeMemory(Device, uniformBuffersMemory[i], null);
+        }
+
+        return irradianceMap;
+    }
+
+    Cubemap ImagesToCubeMap(Image[] srcImages, Extent2D imageExtent)
+    {
+        Image dstImage;
+        DeviceMemory dstImageMemory;
+        (dstImage, dstImageMemory) = VulkanHelper.CreateCubemapImage(Device, PhysicalDevice,
+                                                               imageExtent.Width, imageExtent.Width,
+                                                               Format.R16G16B16A16Sfloat, ImageTiling.Optimal,
+                                                               ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+                                                               MemoryPropertyFlags.DeviceLocalBit);
+
+        TransitionImageLayout(dstImage, Format.R16G16B16A16Sfloat, ImageLayout.Undefined, ImageLayout.TransferDstOptimal, 6);
+
+        var commandBuffer = BeginSingleTimeCommand();
+        for (uint layer = 0; layer < 6; layer++)
+        {
+            ImageCopy copyRegion = new()
+            {
+                SrcOffset = new() { X = 0, Y = 0, Z = 0 },
+                SrcSubresource = new()
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                    BaseArrayLayer = 0
+                },
+                DstOffset = new() { X = 0, Y = 0, Z = 0 },
+                DstSubresource = new()
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                    BaseArrayLayer = layer
+                },
+                Extent = new() { Width = imageExtent.Width, Height = imageExtent.Height, Depth = 1 }
+            };
+            vk.CmdCopyImage(commandBuffer,
+                            srcImages[layer], ImageLayout.TransferSrcOptimal,
+                            dstImage, ImageLayout.TransferDstOptimal,
+                            1, &copyRegion);
+        }
+        EndSingleTimeCommand(commandBuffer);
+
+        TransitionImageLayout(dstImage, Format.R16G16B16A16Sfloat, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, 6);
+
+        return new Cubemap(this, dstImage, dstImageMemory);
     }
 
     void CreateInstance(out Instance instance)
@@ -1014,11 +1223,11 @@ unsafe public partial class VulkanRenderer
         SingleColorAttachment[] cubefaceAttachments = new SingleColorAttachment[6];
         for (int i = 0; i < 6; i++)
         {
-            cubefaceAttachments[i] = new SingleColorAttachment(Device, PhysicalDevice, Format.R16G16B16Sfloat, new Extent2D(512, 512));
+            cubefaceAttachments[i] = new SingleColorAttachment(Device, PhysicalDevice, Format.R16G16B16A16Sfloat, new Extent2D(512, 512));
         }
 
         RenderPassBuilder renderPassBuilder = new(Device);
-        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal)
+        renderPassBuilder.AddColorAttachment(Format.R16G16B16A16Sfloat, ImageLayout.TransferSrcOptimal)
                          .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
@@ -1032,11 +1241,12 @@ unsafe public partial class VulkanRenderer
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(Device, renderPass, cubefaceAttachments, commandPool, new Extent2D(512, 512), 6, MaxFramesInFlight);
+        RenderStage renderStage = new(Device, renderPass, cubefaceAttachments, commandPool, new Extent2D(512, 512), 6, 1);
 
         var clearColors = new ClearValue[]
         {
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } }, 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
         };
         renderStage.ClearValues.AddRange(clearColors);
 
@@ -1048,11 +1258,11 @@ unsafe public partial class VulkanRenderer
         SingleColorAttachment[] cubefaceAttachments = new SingleColorAttachment[6];
         for (int i = 0; i < 6; i++)
         {
-            cubefaceAttachments[i] = new SingleColorAttachment(Device, PhysicalDevice, Format.R16G16B16Sfloat, new Extent2D(32, 32));
+            cubefaceAttachments[i] = new SingleColorAttachment(Device, PhysicalDevice, Format.R16G16B16A16Sfloat, new Extent2D(32, 32));
         }
 
         RenderPassBuilder renderPassBuilder = new(Device);
-        renderPassBuilder.AddColorAttachment(Format.R16G16B16Sfloat, ImageLayout.TransferSrcOptimal)
+        renderPassBuilder.AddColorAttachment(Format.R16G16B16A16Sfloat, ImageLayout.TransferSrcOptimal)
                          .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
@@ -1066,11 +1276,12 @@ unsafe public partial class VulkanRenderer
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(Device, renderPass, cubefaceAttachments, commandPool, new Extent2D(32, 32), 6, MaxFramesInFlight);
+        RenderStage renderStage = new(Device, renderPass, cubefaceAttachments, commandPool, new Extent2D(32, 32), 6, 1);
 
         var clearColors = new ClearValue[]
         {
-            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } }, 
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
         };
         renderStage.ClearValues.AddRange(clearColors);
 
@@ -1394,11 +1605,6 @@ unsafe public partial class VulkanRenderer : IDisposable
     {
         if (!disposedValue)
         {
-            if (disposing)
-            {
-                // dispose managed objects
-            }
-
             // free unmanaged resources unmanaged objects and override finalizer
             for (int i = 0; i < MaxFramesInFlight; i++)
             {

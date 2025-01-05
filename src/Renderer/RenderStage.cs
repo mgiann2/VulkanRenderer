@@ -20,7 +20,7 @@ unsafe public class RenderStage : IDisposable
     public RenderPass RenderPass { get; }
     public List<ClearValue> ClearValues = new();
 
-    public RenderStage(Device device, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, CommandPool commandPool, Extent2D extent, uint framebufferCount, uint framesInFlight)
+    public RenderStage(Device device, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, CommandPool commandPool, Extent2D extent, uint framebufferCount, uint commandBufferCount)
     {
         vk = VulkanHelper.Vk;
         this.device = device;
@@ -54,13 +54,13 @@ unsafe public class RenderStage : IDisposable
         }
 
         // Create command buffers
-        var tmpCommandBuffers = new CommandBuffer[framesInFlight];
+        var tmpCommandBuffers = new CommandBuffer[commandBufferCount];
         CommandBufferAllocateInfo allocInfo = new()
         {
             SType = StructureType.CommandBufferAllocateInfo,
             CommandPool = commandPool,
             Level = CommandBufferLevel.Primary,
-            CommandBufferCount = framesInFlight 
+            CommandBufferCount = commandBufferCount 
         };
 
         fixed (CommandBuffer* commandBuffersPtr = tmpCommandBuffers)
@@ -73,13 +73,13 @@ unsafe public class RenderStage : IDisposable
         commandBuffers = tmpCommandBuffers;
 
         // Create signal semaphores
-        this.signalSemaphores = new Semaphore[framesInFlight];
+        this.signalSemaphores = new Semaphore[commandBufferCount];
         SemaphoreCreateInfo semaphoreInfo = new()
         {
             SType = StructureType.SemaphoreCreateInfo,
         };
 
-        for (uint i = 0; i < framesInFlight; i++) 
+        for (uint i = 0; i < commandBufferCount; i++) 
         {
             if (vk.CreateSemaphore(device, in semaphoreInfo, null, out signalSemaphores[i]) != Result.Success)
             {
@@ -90,12 +90,10 @@ unsafe public class RenderStage : IDisposable
 
     /// <summary>
     /// Begins a render stage to allow for drawing commands. Implicitly begins the command buffer
-    /// at commandBufferIndex and begins a render pass to render to the framebuffer at framebufferIndex.
-    /// Furthemore, sets the viewport and scissor to be the full size of the swapchain image.
+    /// at commandBufferIndex.
     /// </summary>
     /// <param name="commandBufferIndex">The index of the command buffer to use for rendering.</param>
-    /// <param name="framebufferIndex">The index of the framebuffer to render to.</param>
-    public void BeginCommands(uint commandBufferIndex, uint framebufferIndex)
+    public void BeginCommands(uint commandBufferIndex)
     {
         CommandBufferBeginInfo beginInfo = new()
         {
@@ -106,7 +104,30 @@ unsafe public class RenderStage : IDisposable
         {
             throw new Exception("Failed to begin command buffer!");
         }
+    }
 
+    /// <summary>
+    /// Ends a render stage's drawing commands. Implicitly ends the command buffer at commandBufferIndex.
+    /// </summary>
+    /// <param name="commandBufferIndex">The index of the command buffer that was used for rendering.</param>
+    public void EndCommands(uint commandBufferIndex)
+    {
+        if (vk.EndCommandBuffer(commandBuffers[commandBufferIndex]) != Result.Success)
+        {
+            throw new Exception("Failed to end command buffer!");
+        }
+    }
+
+    /// <summary>
+    /// Begins a render pass using the framebuffer at framebufferIndex. Requires
+    /// that the command buffer at commandBufferIndex has began using the 
+    /// BeginCommands method.
+    /// Furthemore, sets the viewport and scissor to be the full size of the framebuffer image.
+    /// </summary>
+    /// <param name="commandBufferIndex">The index of the command buffer to use for rendering.</param>
+    /// <param name="framebufferIndex">The index of the framebuffer to render to.</param>
+    public void BeginRenderPass(uint commandBufferIndex, uint framebufferIndex)
+    {
         RenderPassBeginInfo renderPassBeginInfo = new()
         {
             SType = StructureType.RenderPassBeginInfo,
@@ -146,16 +167,13 @@ unsafe public class RenderStage : IDisposable
     }
 
     /// <summary>
-    /// Ends a render stage's drawing commands. Implicitly ends the command buffer at commandBufferIndex.
+    /// Ends the current render pass. Requires that a render pass has begun using
+    /// the BeginRenderPass method.
     /// </summary>
-    /// <param name="commandBufferIndex">The index of the command buffer that was used for rendering.</param>
-    public void EndCommands(uint commandBufferIndex)
+    /// <param name="commandBufferIndex">The index of the command buffer to use for rendering.</param>
+    public void EndRenderPass(uint commandBufferIndex)
     {
         vk.CmdEndRenderPass(commandBuffers[commandBufferIndex]);
-        if (vk.EndCommandBuffer(commandBuffers[commandBufferIndex]) != Result.Success)
-        {
-            throw new Exception("Failed to end command buffer!");
-        }
     }
 
     public void SubmitCommands(Queue queue, uint commandBufferIndex, Semaphore[] waitSemaphores, Fence? inFlightFence = null)

@@ -122,9 +122,9 @@ unsafe public static class VulkanHelper
             SType = StructureType.SamplerCreateInfo,
             MagFilter = Filter.Linear,
             MinFilter = Filter.Linear,
-            AddressModeU = SamplerAddressMode.Repeat,
-            AddressModeV = SamplerAddressMode.Repeat,
-            AddressModeW = SamplerAddressMode.Repeat,
+            AddressModeU = SamplerAddressMode.ClampToEdge,
+            AddressModeV = SamplerAddressMode.ClampToEdge,
+            AddressModeW = SamplerAddressMode.ClampToEdge,
             AnisotropyEnable = true,
             MaxAnisotropy = properties.Limits.MaxSamplerAnisotropy,
             BorderColor = BorderColor.IntOpaqueBlack,
@@ -235,6 +235,76 @@ unsafe public static class VulkanHelper
                 LevelCount = 1,
                 BaseArrayLayer = 0,
                 LayerCount = 1
+            }
+        };
+
+        if (Vk.CreateImageView(device, in viewInfo, null, out var imageView) != Result.Success)
+        {
+            throw new Exception("Failed to create image view!");
+        }
+        return imageView;
+    }
+
+    public static (Image, DeviceMemory) CreateCubemapImage(Device device, PhysicalDevice physicalDevice, 
+            uint width, uint height, Format format, ImageTiling tiling,
+            ImageUsageFlags usage, MemoryPropertyFlags properties)
+    {
+        ImageCreateInfo imageInfo = new()
+        {
+            SType = StructureType.ImageCreateInfo,
+            ImageType = ImageType.Type2D,
+            Extent = new() { Width = width, Height = height, Depth = 1 },
+            MipLevels = 1,
+            ArrayLayers = 6,
+            Format = format,
+            Tiling = tiling,
+            InitialLayout = ImageLayout.Undefined,
+            Usage = usage,
+            SharingMode = SharingMode.Exclusive,
+            Samples = SampleCountFlags.Count1Bit,
+            Flags = ImageCreateFlags.CreateCubeCompatibleBit
+        };
+
+        if (Vk.CreateImage(device, in imageInfo, null, out var image) != Result.Success)
+        {
+            throw new Exception("Failed to create textue image!");
+        }
+
+        MemoryRequirements memRequirements;
+        Vk.GetImageMemoryRequirements(device, image, out memRequirements);
+
+        MemoryAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.MemoryAllocateInfo,
+            AllocationSize = memRequirements.Size,
+            MemoryTypeIndex = VulkanHelper.FindMemoryType(physicalDevice, memRequirements.MemoryTypeBits, properties)
+        };
+
+        if (Vk.AllocateMemory(device, in allocInfo, null, out var imageMemory) != Result.Success)
+        {
+            throw new Exception("Failed to allocate texture image memory!");
+        }
+
+        Vk.BindImageMemory(device, image, imageMemory, 0);
+
+        return (image, imageMemory);
+    }
+
+    public static ImageView CreateCubemapImageView(Device device, Image image, Format format)
+    {
+        ImageViewCreateInfo viewInfo = new()
+        {
+            SType = StructureType.ImageViewCreateInfo,
+            Image = image,
+            Format = format,
+            ViewType = ImageViewType.TypeCube,
+            SubresourceRange = new()
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = 6
             }
         };
 

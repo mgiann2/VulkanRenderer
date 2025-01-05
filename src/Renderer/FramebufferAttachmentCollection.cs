@@ -34,8 +34,10 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
 
     public SingleColorAttachment(Device device, PhysicalDevice physicalDevice, Format format, Extent2D imageExtent)
     {
-        Color = new ImageAttachment(device, physicalDevice, format, ImageUsageFlags.ColorAttachmentBit, imageExtent);
-        Depth = new ImageAttachment(device, physicalDevice, VulkanHelper.FindDepthFormat(physicalDevice), ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
+        Color = new ImageAttachment(device, physicalDevice, format,
+                ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, imageExtent);
+        Depth = new ImageAttachment(device, physicalDevice, VulkanHelper.FindDepthFormat(physicalDevice),
+                ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
     }
 
     protected virtual void Dispose(bool disposing)

@@ -49,7 +49,7 @@ unsafe public class Texture : IDisposable
                 ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
 
         renderer.TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
-        renderer.CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height);
+        renderer.CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height, 1);
         renderer.TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
 
         vk.DestroyBuffer(renderer.Device, stagingBuffer, null);
