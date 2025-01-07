@@ -590,10 +590,10 @@ unsafe public partial class VulkanRenderer
         // Create descriptor sets
         Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
         {
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
         };
@@ -667,10 +667,10 @@ unsafe public partial class VulkanRenderer
         // Create descriptor sets
         Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
         {
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
         };

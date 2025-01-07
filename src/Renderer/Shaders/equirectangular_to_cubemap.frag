@@ -9,9 +9,9 @@ const vec2 invAtan = vec2(0.1591, 0.3183);
 vec2 SampleSphericalMap(vec3 skyboxPos)
 {
     vec2 uv = vec2(atan(skyboxPos.z, skyboxPos.x), asin(skyboxPos.y));
+    // uv.y = -uv.y; // flip y coordinate since texture is flipped
     uv *= invAtan;
     uv += 0.5;
-    uv.y = -uv.y; // flip y coordinate since texture is flipped
     return uv;
 }
 
