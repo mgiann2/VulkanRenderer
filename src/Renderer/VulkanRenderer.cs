@@ -46,8 +46,7 @@ public struct SceneInfo
 {
     [FieldOffset(0)]public Matrix4X4<float> CameraView;
     [FieldOffset(64)]public Matrix4X4<float> CameraProjection;
-    [FieldOffset(128)]public Vector3D<float> AmbientLightColor;
-    [FieldOffset(140)]public float AmbientLightStrength;
+    [FieldOffset(128)]public Vector3D<float> CameraPosition;
     [FieldOffset(144)]public Vector3D<float> DirectionalLightDirection;
     [FieldOffset(160)]public Vector3D<float> DirectionalLightColor;
 }
@@ -147,7 +146,8 @@ unsafe public partial class VulkanRenderer
     DescriptorSet[] thresholdTextureDescriptorSets;
     DescriptorSet[] bloomPass1OutputTextureDescriptorSets;
     DescriptorSet[] bloomPass2OutputTextureDescriptorSets;
-    DescriptorSet skyboxTextureDescriptorSets;
+    DescriptorSet skyboxTextureDescriptorSet;
+    DescriptorSet irradianceMapDescriptorSet;
 
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
@@ -260,7 +260,8 @@ unsafe public partial class VulkanRenderer
         irradianceCubemap = CreateIrradianceCubemap(skyboxCubemap);
 
         // Create skybox descriptor sets
-        skyboxTextureDescriptorSets = CreateSingleTextureDescriptorSets(skyboxCubemap.CubemapImageView, 1)[0];
+        skyboxTextureDescriptorSet = CreateSingleTextureDescriptorSets(skyboxCubemap.CubemapImageView, 1)[0];
+        irradianceMapDescriptorSet = CreateSingleTextureDescriptorSets(irradianceCubemap.CubemapImageView, 1)[0];
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -316,7 +317,7 @@ unsafe public partial class VulkanRenderer
         var compositionCommandBuffer = compositionRenderStage.GetCommandBuffer(currentFrame);
 
         // draw skybox
-        var skyboxDescriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], skyboxTextureDescriptorSets };
+        var skyboxDescriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], skyboxTextureDescriptorSet };
         vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, skyboxPipeline.Pipeline);
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 skyboxPipeline.Layout, 0, 2, skyboxDescriptorSets, 0, default);
@@ -326,11 +327,16 @@ unsafe public partial class VulkanRenderer
         vk.CmdDrawIndexed(compositionCommandBuffer, cubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
         // draw gbuffer objects
-        var descriptorSets = stackalloc[] { sceneInfoDescriptorSets[currentFrame], screenTextureInfoDescriptorSets[currentFrame] };
+        var descriptorSets = stackalloc[] 
+        { 
+            sceneInfoDescriptorSets[currentFrame],
+            screenTextureInfoDescriptorSets[currentFrame],
+            irradianceMapDescriptorSet
+        };
 
         vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
-                compositionPipeline.Layout, 0, 2, descriptorSets, 0, default);
+                compositionPipeline.Layout, 0, 3, descriptorSets, 0, default);
 
         Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffer);
         Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffer);

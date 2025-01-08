@@ -3,11 +3,9 @@
 layout (set = 0, binding = 0) uniform SceneInfo {
     mat4 cameraView;
     mat4 cameraProj;
-    vec3 ambientLightColor;
-    float ambientLightStrength;
+    vec3 cameraPos;
 } sceneInfo;
 
-// vec4 are used to avoid padding issues
 layout (push_constant) uniform LightData {
     mat4 model;
     vec3 pos;
@@ -23,7 +21,7 @@ layout (location = 2) out vec3 outCameraPos;
 void main() {
     outLightColor = light.color.rgb;
     outLightPos = light.pos.xyz;
-    outCameraPos = sceneInfo.cameraView[3].xyz;
+    outCameraPos = sceneInfo.cameraPos;
 
     gl_Position = sceneInfo.cameraProj * sceneInfo.cameraView * light.model * vec4(inPos, 1.0f);
 }

@@ -92,7 +92,7 @@ unsafe public class GBufferAttachments : IFramebufferAttachmentCollection
 
     public GBufferAttachments(Device device, PhysicalDevice physicalDevice, Extent2D swapchainImageExtent)
     {
-        Albedo = new ImageAttachment(device, physicalDevice, Format.R8G8B8A8Unorm, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        Albedo = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         Normal = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         AoRoughnessMetalness = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         Position = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);

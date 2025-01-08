@@ -76,7 +76,8 @@ unsafe public partial class VulkanRenderer
                        .SetColorBlendingNone(CompositionPassColorAttachmentCount)
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
                        .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
-                       .AddDescriptorSetLayout(screenTextureDescriptorSetLayout);
+                       .AddDescriptorSetLayout(screenTextureDescriptorSetLayout)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);
     }
@@ -114,7 +115,6 @@ unsafe public partial class VulkanRenderer
                        .AddPushConstantRange((uint) Unsafe.SizeOf<SolidColorObjectInfo>(), 0, ShaderStageFlags.VertexBit);
 
         return pipelineBuilder.Build(renderPass, 0);
-
     }
 
     GraphicsPipeline CreateSkyboxPipeline(RenderPass renderPass)

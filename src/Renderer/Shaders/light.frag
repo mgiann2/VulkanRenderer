@@ -52,7 +52,7 @@ void main() {
 
     vec3 kS = fresnel;
     vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metalness;
+    // kD *= 1.0 - metalness;
 
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);

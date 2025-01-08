@@ -4,13 +4,12 @@ layout (set = 1, binding = 0) uniform sampler2D albedoSampler;
 layout (set = 1, binding = 1) uniform sampler2D normalSampler;
 layout (set = 1, binding = 2) uniform sampler2D aoRoughnessMetalnessSampler;
 layout (set = 1, binding = 3) uniform sampler2D positionSampler;
+layout (set = 2, binding = 0) uniform samplerCube irradianceMap;
 
 layout (location = 0) in vec3 inCameraPos;
 layout (location = 1) in vec2 inTexCoord;
-layout (location = 2) in vec3 inAmbientColor;
-layout (location = 3) in float inAmbientStrength;
-layout (location = 4) in vec3 inDirectionalLightDir;
-layout (location = 5) in vec3 inDirectionalLightColor;
+layout (location = 2) in vec3 inDirectionalLightDir;
+layout (location = 3) in vec3 inDirectionalLightColor;
 
 layout (location = 0) out vec4 outColor;
 layout (location = 1) out vec4 outThresholdColor;
@@ -31,7 +30,7 @@ void main() {
     vec3 pos = texture(positionSampler, inTexCoord).rgb;
     vec3 aoRoughnessMetalness = texture(aoRoughnessMetalnessSampler, inTexCoord).rgb;
 
-    // discard pixel if the aplha is 0 since this implies there is no object to be drawn
+    // discard pixel if the alpha is 0 since this implies there is no object to be drawn
     if (alpha == 0.0)
     {
         discard;
@@ -47,30 +46,47 @@ void main() {
 
     vec3 N = normalize(normal);
     vec3 V = normalize(inCameraPos - pos);
-    vec3 L = normalize(-inDirectionalLightDir);
-    vec3 H = normalize(V + L);
 
-    // radiance
-    vec3 radiance = inDirectionalLightColor;
+    // compute directional light
+    vec3 Lo = vec3(0.0);
+    {
+        vec3 L = normalize(-inDirectionalLightDir);
+        vec3 H = normalize(V + L);
 
-    // cook-torrence BRDF
-    float normalDist = NormalDistribution(N, H, roughness);
-    float geometry = GeometrySmith(N, V, L, roughness);
-    vec3 fresnel = FresnelSchlick(max(dot(H, V), 0.0), F0);
+        // radiance
+        vec3 radiance = inDirectionalLightColor;
 
-    vec3 kS = fresnel;
-    vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metalness;
+        // cook-torrence BRDF
+        float normalDist = NormalDistribution(N, H, roughness);
+        float geometry = GeometrySmith(N, V, L, roughness);
+        vec3 fresnel = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 specular = (normalDist * geometry * fresnel) / (4.0 * NdotV * NdotL + 0.0001);
+        vec3 kS = fresnel;
+        vec3 kD = vec3(1.0) - kS;
+        // kD *= 1.0 - metalness;
+
+        float NdotV = max(dot(N, V), 0.0);
+        float NdotL = max(dot(N, L), 0.0);
+        vec3 specular = (normalDist * geometry * fresnel) / (4.0 * NdotV * NdotL + 0.0001);
+
+        Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+    }
+
+    // compute ambient light
+    {
+        vec3 irradiance = texture(irradianceMap, N).rgb;
+
+        vec3 kS = FresnelSchlick(max(dot(N, V), 0.0), F0);
+        vec3 kD = 1.0 - kS;
+        // kD *= 1.0 - metalness;
+        vec3 diffuse = irradiance * albedo;
+        vec3 ambient = (kD * diffuse) * ao;
+
+        Lo += ambient;
+    }
 
     // compute output light
-    vec3 outLight = (kD * albedo / PI + specular) * radiance * NdotL;
-    vec3 ambient = albedo * ao * inAmbientStrength * inAmbientColor;
-
-    outColor = vec4(ambient + outLight, 1.0);
+    outColor = vec4(Lo, 1.0);
     
     float brighness = dot(outColor.rgb, vec3(0.2126, 0.7152, 0.0722));
     if (brighness > 1.0)

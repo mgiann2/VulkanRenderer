@@ -14,21 +14,23 @@ unsafe public class Texture : IDisposable
     public DeviceMemory TextureImageMemory { get; }
     public ImageView TextureImageView { get; }
 
-    public Texture(VulkanRenderer renderer, string filepath)
+    public Texture(VulkanRenderer renderer, string filepath, bool isNormal = false)
     {
         this.renderer = renderer;
+
+        Format format = isNormal ? Format.R8G8B8A8Unorm : Format.R8G8B8A8Srgb;
 
         using (var stream = File.OpenRead(filepath))
         using (var memoryStream = new MemoryStream())
         {
             stream.CopyTo(memoryStream);
-            (TextureImage, TextureImageMemory) = CreateTextureImage(memoryStream, renderer);
+            (TextureImage, TextureImageMemory) = CreateTextureImage(memoryStream, renderer, format);
         }
 
-        TextureImageView = CreateTextureImageView(TextureImage, renderer);
+        TextureImageView = CreateTextureImageView(TextureImage, renderer, format);
     }
 
-    (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream, VulkanRenderer renderer)
+    (Image, DeviceMemory) CreateTextureImage(MemoryStream memoryStream, VulkanRenderer renderer, Format format)
     {
         var image = Stbi.LoadFromMemory(memoryStream, 4);
 
@@ -45,12 +47,12 @@ unsafe public class Texture : IDisposable
         vk.UnmapMemory(renderer.Device, stagingBufferMemory);
 
         (var textureImage, var textureImageMemory) = VulkanHelper.CreateImage(renderer.Device, renderer.PhysicalDevice, 
-                (uint)image.Width, (uint)image.Height, Format.R8G8B8A8Srgb, ImageTiling.Optimal,
+                (uint)image.Width, (uint)image.Height, format, ImageTiling.Optimal,
                 ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
 
-        renderer.TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+        renderer.TransitionImageLayout(textureImage, format, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
         renderer.CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height, 1);
-        renderer.TransitionImageLayout(textureImage, Format.R8G8B8A8Srgb, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+        renderer.TransitionImageLayout(textureImage, format, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
 
         vk.DestroyBuffer(renderer.Device, stagingBuffer, null);
         vk.FreeMemory(renderer.Device, stagingBufferMemory, null);
@@ -58,9 +60,9 @@ unsafe public class Texture : IDisposable
         return (textureImage, textureImageMemory);
     }
 
-    ImageView CreateTextureImageView(Image textureImage, VulkanRenderer renderer)
+    ImageView CreateTextureImageView(Image textureImage, VulkanRenderer renderer, Format format)
     {
-        return VulkanHelper.CreateImageView(renderer.Device, textureImage, Format.R8G8B8A8Srgb, ImageAspectFlags.ColorBit);
+        return VulkanHelper.CreateImageView(renderer.Device, textureImage, format, ImageAspectFlags.ColorBit);
     }
 
     protected virtual void Dispose(bool disposing)

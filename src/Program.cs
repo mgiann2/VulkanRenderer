@@ -115,10 +115,9 @@ class Program
         {
             CameraView = camera!.GetViewMatrix(),
             CameraProjection = camera!.GetProjectionMatrix((float) width / height),
-            AmbientLightColor = new Vector3D<float>(1.0f),
-            AmbientLightStrength = 0.03f,
+            CameraPosition = camera!.Transform.Position,
             DirectionalLightDirection = new Vector3D<float>(1.0f, -1.0f, 0.0f),
-            DirectionalLightColor = new Vector3D<float>(1.0f, 0.8f, 0.8f)
+            DirectionalLightColor = new Vector3D<float>(0.1f)
         };
         renderer!.UpdateSceneInfo(sceneInfo);
 
