@@ -17,7 +17,7 @@ unsafe public class Cubemap : IDisposable
         this.renderer = renderer;
         CubemapImage = cubemapImage;
         CubemapMemory = cubemapMemory;
-        CubemapImageView = VulkanHelper.CreateCubemapImageView(renderer.Device, cubemapImage, Format.R16G16B16A16Sfloat);
+        CubemapImageView = VulkanHelper.CreateCubemapImageView(renderer.SCDevice, cubemapImage, Format.R16G16B16A16Sfloat);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -25,9 +25,9 @@ unsafe public class Cubemap : IDisposable
         if (!disposedValue)
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyImageView(renderer.Device, CubemapImageView, null);
-            vk.DestroyImage(renderer.Device, CubemapImage, null);
-            vk.FreeMemory(renderer.Device, CubemapMemory, null);
+            vk.DestroyImageView(renderer.SCDevice.LogicalDevice, CubemapImageView, null);
+            vk.DestroyImage(renderer.SCDevice.LogicalDevice, CubemapImage, null);
+            vk.FreeMemory(renderer.SCDevice.LogicalDevice, CubemapMemory, null);
             disposedValue = true;
         }
     }

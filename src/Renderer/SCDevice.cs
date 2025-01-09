@@ -40,11 +40,13 @@ public struct SwapchainInfo
 
 unsafe public class SCDevice : IDisposable
 {
-    public Device Device { get; }
+    public Device LogicalDevice { get; }
     public PhysicalDevice PhysicalDevice { get; }
     public SwapchainInfo SwapchainInfo { get; private set; }
     public Queue GraphicsQueue { get; }
     public Queue PresentQueue { get; }
+
+    public QueueFamilyIndices QueueFamilyIndices => FindQueueFamilies(PhysicalDevice);
 
     private Vk vk = VulkanHelper.Vk;
     private Instance instance;
@@ -73,11 +75,11 @@ unsafe public class SCDevice : IDisposable
         instance = CreateInstance(window.VkSurface);
         (khrSurface, surface) = CreateSurface(window.VkSurface);
         PhysicalDevice = PickPhysicalDevice();
-        Device = CreateLogicalDevice();
+        LogicalDevice = CreateLogicalDevice();
 
         var indices = FindQueueFamilies(PhysicalDevice);
-        vk.GetDeviceQueue(Device, indices.GraphicsFamily!.Value, 0, out var graphicsQueue);
-        vk.GetDeviceQueue(Device, indices.PresentFamily!.Value, 0, out var presentQueue);
+        vk.GetDeviceQueue(LogicalDevice, indices.GraphicsFamily!.Value, 0, out var graphicsQueue);
+        vk.GetDeviceQueue(LogicalDevice, indices.PresentFamily!.Value, 0, out var presentQueue);
         GraphicsQueue = graphicsQueue;
         PresentQueue = presentQueue;
 
@@ -89,9 +91,9 @@ unsafe public class SCDevice : IDisposable
         // destroy old swap chain
         foreach (var imageView in SwapchainInfo.ImageViews)
         {
-            vk.DestroyImageView(Device, imageView, null);
+            vk.DestroyImageView(LogicalDevice, imageView, null);
         }
-        SwapchainInfo.KhrSwapchain.DestroySwapchain(Device, SwapchainInfo.Swapchain, null);
+        SwapchainInfo.KhrSwapchain.DestroySwapchain(LogicalDevice, SwapchainInfo.Swapchain, null);
 
         SwapchainInfo = CreateSwapchain(window);
     }
@@ -287,22 +289,22 @@ unsafe public class SCDevice : IDisposable
         swapchainCreateInfo.Clipped = true;
         swapchainCreateInfo.OldSwapchain = default;
 
-        if (!vk.TryGetDeviceExtension(instance, Device, out KhrSwapchain khrSwapchain))
+        if (!vk.TryGetDeviceExtension(instance, LogicalDevice, out KhrSwapchain khrSwapchain))
         {
             throw new Exception("VK_KHR_swapchain extension not found!");
         }
 
-        if (khrSwapchain.CreateSwapchain(Device, in swapchainCreateInfo, null, out var swapchain) != Result.Success)
+        if (khrSwapchain.CreateSwapchain(LogicalDevice, in swapchainCreateInfo, null, out var swapchain) != Result.Success)
         {
             throw new Exception("Failded to create swapchain!");
         }
 
         uint swapchainImageCount = 0;
-        khrSwapchain.GetSwapchainImages(Device, swapchain, ref swapchainImageCount, null);
+        khrSwapchain.GetSwapchainImages(LogicalDevice, swapchain, ref swapchainImageCount, null);
         var swapchainImages = new Image[swapchainImageCount];
         fixed (Image* swapchainImagesPtr = swapchainImages)
         {
-            khrSwapchain.GetSwapchainImages(Device, swapchain, ref swapchainImageCount, swapchainImagesPtr);
+            khrSwapchain.GetSwapchainImages(LogicalDevice, swapchain, ref swapchainImageCount, swapchainImagesPtr);
         }
 
         var swapchainImageFormat = surfaceFormat.Format;
@@ -312,7 +314,7 @@ unsafe public class SCDevice : IDisposable
         var swapchainImageViews = new ImageView[swapchainImages.Length];
         for (int i = 0; i < swapchainImages.Length; i++)
         {
-            swapchainImageViews[i] = VulkanHelper.CreateImageView(Device, swapchainImages[i], swapchainImageFormat, ImageAspectFlags.ColorBit);
+            swapchainImageViews[i] = VulkanHelper.CreateImageView(this, swapchainImages[i], swapchainImageFormat, ImageAspectFlags.ColorBit);
         }
 
         return new SwapchainInfo
@@ -536,11 +538,11 @@ unsafe public class SCDevice : IDisposable
             // free unmanaged resources (unmanaged objects) and override finalizer
             foreach (var imageView in SwapchainInfo.ImageViews)
             {
-                vk.DestroyImageView(Device, imageView, null);
+                vk.DestroyImageView(LogicalDevice, imageView, null);
             }
-            SwapchainInfo.KhrSwapchain.DestroySwapchain(Device, SwapchainInfo.Swapchain, null);
+            SwapchainInfo.KhrSwapchain.DestroySwapchain(LogicalDevice, SwapchainInfo.Swapchain, null);
 
-            vk.DestroyDevice(Device, null);
+            vk.DestroyDevice(LogicalDevice, null);
             khrSurface.DestroySurface(instance, surface, null);
             vk.DestroyInstance(instance, null);
 

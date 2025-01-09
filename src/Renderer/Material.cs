@@ -33,7 +33,7 @@ unsafe public class Material : IDisposable
             // free unmanaged resources (unmanaged objects) and override finalizer
             fixed (DescriptorSet* descriptorSetsPtr = DescriptorSets)
             {
-                vk.FreeDescriptorSets(renderer.Device, renderer.materialInfoDescriptorPool,
+                vk.FreeDescriptorSets(renderer.SCDevice.LogicalDevice, renderer.materialInfoDescriptorPool,
                         (uint) DescriptorSets.Length, descriptorSetsPtr);
             }
 

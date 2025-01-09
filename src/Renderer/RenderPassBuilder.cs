@@ -5,7 +5,7 @@ namespace Renderer;
 unsafe public class RenderPassBuilder
 {
     Vk vk;
-    Device device;
+    SCDevice scDevice;
 
     List<AttachmentDescription> colorAttachmentDescriptions = new();
     List<AttachmentReference> colorAttachmentReferences = new();
@@ -15,10 +15,10 @@ unsafe public class RenderPassBuilder
 
     List<SubpassDependency> dependencies = new();
 
-    public RenderPassBuilder(Device device)
+    public RenderPassBuilder(SCDevice scDevice)
     {
         vk = Vk.GetApi();
-        this.device = device;
+        this.scDevice = scDevice;
     }
 
     public RenderPassBuilder AddColorAttachment(Format format, ImageLayout finalLayout)
@@ -153,7 +153,7 @@ unsafe public class RenderPassBuilder
             renderPassInfo.PDependencies = dependenciesPtr;
         }
 
-        if (vk.CreateRenderPass(device, in renderPassInfo, null, out var renderPass) != Result.Success)
+        if (vk.CreateRenderPass(scDevice.LogicalDevice, in renderPassInfo, null, out var renderPass) != Result.Success)
         {
             throw new Exception("Unable to create render pass!");
         }

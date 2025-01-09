@@ -6,7 +6,7 @@ namespace Renderer;
 unsafe public class GraphicsPipelineBuilder : IDisposable
 {
     Vk vk;
-    Device device;
+    SCDevice scDevice;
 
     PipelineShaderStageCreateInfo[] shaderStagesInfo = new PipelineShaderStageCreateInfo[] { };
     PipelineInputAssemblyStateCreateInfo? assemblyInfo;
@@ -18,21 +18,21 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
 
     bool disposedValue;
 
-    public GraphicsPipelineBuilder(Device device) 
+    public GraphicsPipelineBuilder(SCDevice scDevice) 
     {
         vk = VulkanHelper.Vk;
-        this.device = device;
+        this.scDevice = scDevice;
     }
 
     public GraphicsPipelineBuilder SetShaders(byte[] vertexShaderCode, byte[] fragmentShaderCode)
     {
         foreach (var shaderStageInfo in shaderStagesInfo)
         {
-            vk.DestroyShaderModule(device, shaderStageInfo.Module, null);
+            vk.DestroyShaderModule(scDevice.LogicalDevice, shaderStageInfo.Module, null);
         }
 
-        var vertexShaderModule = VulkanHelper.CreateShaderModule(device, vertexShaderCode);
-        var fragmentShaderModule = VulkanHelper.CreateShaderModule(device, fragmentShaderCode);
+        var vertexShaderModule = VulkanHelper.CreateShaderModule(scDevice, vertexShaderCode);
+        var fragmentShaderModule = VulkanHelper.CreateShaderModule(scDevice, fragmentShaderCode);
 
         PipelineShaderStageCreateInfo vertexShaderInfo = new()
         {
@@ -237,7 +237,7 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
             };
         }
 
-        if (vk.CreatePipelineLayout(device, in layoutInfo, null, out var pipelineLayout) != Result.Success)
+        if (vk.CreatePipelineLayout(scDevice.LogicalDevice, in layoutInfo, null, out var pipelineLayout) != Result.Success)
         {
             throw new Exception("Failed to create pipeline layout!");
         }
@@ -269,7 +269,7 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
             };
         }
 
-        if (vk.CreateGraphicsPipelines(device, default, 1, in pipelineInfo, null, out var pipeline) != Result.Success)
+        if (vk.CreateGraphicsPipelines(scDevice.LogicalDevice, default, 1, in pipelineInfo, null, out var pipeline) != Result.Success)
         {
             throw new Exception("Failed to create graphics pipeline!");
         }
@@ -305,7 +305,7 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
         {
             foreach (var shaderStageInfo in shaderStagesInfo)
             {
-                vk.DestroyShaderModule(device, shaderStageInfo.Module, null);
+                vk.DestroyShaderModule(scDevice.LogicalDevice, shaderStageInfo.Module, null);
             }
 
             disposedValue = true;

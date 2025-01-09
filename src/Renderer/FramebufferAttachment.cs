@@ -15,12 +15,12 @@ unsafe public class ImageAttachment : IFramebufferAttachment, IDisposable
     public DeviceMemory ImageMemory { get; }
     public ImageView ImageView { get; } 
     
-    private Device device;
+    private SCDevice scDevice;
     private bool disposedValue;
 
-    public ImageAttachment(Device device, PhysicalDevice physicalDevice, Format format, ImageUsageFlags usage, Extent2D imageExtent)
+    public ImageAttachment(SCDevice scDevice, Format format, ImageUsageFlags usage, Extent2D imageExtent)
     {
-        this.device = device;
+        this.scDevice = scDevice;
 
         ImageAspectFlags aspectFlags = ImageAspectFlags.None;
         if (usage == ImageUsageFlags.ColorAttachmentBit || usage == (ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit))
@@ -32,12 +32,12 @@ unsafe public class ImageAttachment : IFramebufferAttachment, IDisposable
             aspectFlags = ImageAspectFlags.DepthBit;
         }
 
-        (Image, ImageMemory) = VulkanHelper.CreateImage(device, physicalDevice, 
+        (Image, ImageMemory) = VulkanHelper.CreateImage(scDevice, 
                 (uint) imageExtent.Width, (uint) imageExtent.Height, 
                 format, ImageTiling.Optimal, usage | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
 
         Format = format;
-        ImageView = VulkanHelper.CreateImageView(device, Image, format, aspectFlags);
+        ImageView = VulkanHelper.CreateImageView(scDevice, Image, format, aspectFlags);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -46,9 +46,9 @@ unsafe public class ImageAttachment : IFramebufferAttachment, IDisposable
         if (!disposedValue)
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyImage(device, Image, null);
-            vk.FreeMemory(device, ImageMemory, null);
-            vk.DestroyImageView(device, ImageView, null);
+            vk.DestroyImage(scDevice.LogicalDevice, Image, null);
+            vk.FreeMemory(scDevice.LogicalDevice, ImageMemory, null);
+            vk.DestroyImageView(scDevice.LogicalDevice, ImageView, null);
 
             disposedValue = true;
         }
@@ -71,12 +71,12 @@ unsafe public class ImageViewAttachment : IFramebufferAttachment, IDisposable
     public Format Format { get; }
     public ImageView ImageView { get; }
 
-    private Device device;
+    private SCDevice scDevice;
     private bool disposedValue;
 
-    public ImageViewAttachment(Device device, ImageView imageView, Format format)
+    public ImageViewAttachment(SCDevice scDevice, ImageView imageView, Format format)
     {
-        this.device = device;
+        this.scDevice = scDevice;
         ImageView = imageView;
         Format = format;
     }
@@ -88,7 +88,7 @@ unsafe public class ImageViewAttachment : IFramebufferAttachment, IDisposable
         if (!disposedValue)
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyImageView(device, ImageView, null);
+            vk.DestroyImageView(scDevice.LogicalDevice, ImageView, null);
 
             disposedValue = true;
         }

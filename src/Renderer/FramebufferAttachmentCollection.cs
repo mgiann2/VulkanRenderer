@@ -32,11 +32,11 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
 
     private bool disposedValue;
 
-    public SingleColorAttachment(Device device, PhysicalDevice physicalDevice, Format format, Extent2D imageExtent)
+    public SingleColorAttachment(SCDevice scDevice, Format format, Extent2D imageExtent)
     {
-        Color = new ImageAttachment(device, physicalDevice, format,
+        Color = new ImageAttachment(scDevice, format,
                 ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, imageExtent);
-        Depth = new ImageAttachment(device, physicalDevice, VulkanHelper.FindDepthFormat(physicalDevice),
+        Depth = new ImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice),
                 ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
     }
 
@@ -90,13 +90,13 @@ unsafe public class GBufferAttachments : IFramebufferAttachmentCollection
         }
     }
 
-    public GBufferAttachments(Device device, PhysicalDevice physicalDevice, Extent2D swapchainImageExtent)
+    public GBufferAttachments(SCDevice scDevice, Extent2D swapchainImageExtent)
     {
-        Albedo = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
-        Normal = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
-        AoRoughnessMetalness = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
-        Position = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
-        Depth = new ImageAttachment(device, physicalDevice, VulkanHelper.FindDepthFormat(physicalDevice), ImageUsageFlags.DepthStencilAttachmentBit, swapchainImageExtent);
+        Albedo = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        Normal = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        AoRoughnessMetalness = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        Position = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        Depth = new ImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice), ImageUsageFlags.DepthStencilAttachmentBit, swapchainImageExtent);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -150,11 +150,11 @@ unsafe public class CompositionAttachments : IFramebufferAttachmentCollection
         }
     }
 
-    public CompositionAttachments(Device device, PhysicalDevice physicalDevice, Extent2D swapchainImageExtent)
+    public CompositionAttachments(SCDevice scDevice, Extent2D swapchainImageExtent)
     {
-        Color = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
-        ThresholdedColor = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
-        Depth = new ImageAttachment(device, physicalDevice, VulkanHelper.FindDepthFormat(physicalDevice), ImageUsageFlags.DepthStencilAttachmentBit, swapchainImageExtent);
+        Color = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        ThresholdedColor = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        Depth = new ImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice), ImageUsageFlags.DepthStencilAttachmentBit, swapchainImageExtent);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -204,9 +204,9 @@ unsafe public class BloomAttachments : IFramebufferAttachmentCollection
         }
     }
 
-    public BloomAttachments(Device device, PhysicalDevice physicalDevice, Extent2D swapchainImageExtent)
+    public BloomAttachments(SCDevice scDevice, Extent2D swapchainImageExtent)
     {
-        Color = new ImageAttachment(device, physicalDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
+        Color = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -254,9 +254,9 @@ unsafe public class SwapChainAttachment : IFramebufferAttachmentCollection
         }
     }
 
-    public SwapChainAttachment(Device device, ImageView imageView, Format format)
+    public SwapChainAttachment(SCDevice scDevice, ImageView imageView, Format format)
     {
-        SwapchainAttachment = new ImageViewAttachment(device, imageView, format);
+        SwapchainAttachment = new ImageViewAttachment(scDevice, imageView, format);
     }
 
     protected virtual void Dispose(bool disposing)

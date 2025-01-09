@@ -33,7 +33,7 @@ class Program
         var options = WindowOptions.DefaultVulkan with
         {
             Size = new Vector2D<int>(800, 600),
-            Title = "MGSV Renderer"
+            Title = "Vulkan Renderer"
         };
 
         window = Window.Create(options);
@@ -79,19 +79,19 @@ class Program
                                                           MaterialsPath + "PaintedMetal/Normal.png",
                                                           MaterialsPath + "PaintedMetal/ARM.png");
         cubeModel = new Model(PrimitiveMesh.CreateCubeMesh(renderer), paintedMetalMaterial);
-        cubeTransform = new Transform(new Vector3D<float>(3.0f, 0.0f, 0.0f), Vector3D<float>.Zero, Vector3D<float>.One);
+        cubeTransform = new Transform(new Vector3D<float>(4.0f, 0.0f, 0.0f), Vector3D<float>.Zero, Vector3D<float>.One);
 
         lights = new Light[]
         {
             new()
             {
                 Position = new Vector3D<float>(-2.0f, 2.0f, 0.0f),
-                Color = new Vector3D<float>(0.0f, 3.0f, 0.0f),
+                Color = new Vector3D<float>(1.0f, 1.0f, 1.0f),
             },
             new()
             {
                 Position = new Vector3D<float>(2.0f, 2.0f, 0.0f),
-                Color = new Vector3D<float>(0.0f, 0.0f, 3.0f)
+                Color = new Vector3D<float>(1.0f, 1.0f, 1.0f)
             }
         }; 
         renderer!.Lights.AddRange(lights);
@@ -104,8 +104,7 @@ class Program
         HandleInput();
 
         // update rendering info
-        var time = window!.Time;
-        (var width, var height) = (window.FramebufferSize.X, window.FramebufferSize.Y);
+        (var width, var height) = (window!.FramebufferSize.X, window!.FramebufferSize.Y);
 
         // move camera
         camera!.Transform.Translate(camera!.Transform.Forward * (float) deltaTime * keyboardMovement.Y);

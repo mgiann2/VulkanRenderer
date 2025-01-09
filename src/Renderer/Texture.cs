@@ -38,15 +38,15 @@ unsafe public class Texture : IDisposable
 
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(renderer.Device, renderer.PhysicalDevice, imageSize, BufferUsageFlags.TransferSrcBit,
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(renderer.SCDevice, imageSize, BufferUsageFlags.TransferSrcBit,
                      MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
-        vk.MapMemory(renderer.Device, stagingBufferMemory, 0, imageSize, 0, &data);
+        vk.MapMemory(renderer.SCDevice.LogicalDevice, stagingBufferMemory, 0, imageSize, 0, &data);
         image.Data.CopyTo(new Span<byte>(data, (int)imageSize));
-        vk.UnmapMemory(renderer.Device, stagingBufferMemory);
+        vk.UnmapMemory(renderer.SCDevice.LogicalDevice, stagingBufferMemory);
 
-        (var textureImage, var textureImageMemory) = VulkanHelper.CreateImage(renderer.Device, renderer.PhysicalDevice, 
+        (var textureImage, var textureImageMemory) = VulkanHelper.CreateImage(renderer.SCDevice, 
                 (uint)image.Width, (uint)image.Height, format, ImageTiling.Optimal,
                 ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
 
@@ -54,15 +54,15 @@ unsafe public class Texture : IDisposable
         renderer.CopyBufferToImage(stagingBuffer, textureImage, (uint)image.Width, (uint)image.Height, 1);
         renderer.TransitionImageLayout(textureImage, format, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
 
-        vk.DestroyBuffer(renderer.Device, stagingBuffer, null);
-        vk.FreeMemory(renderer.Device, stagingBufferMemory, null);
+        vk.DestroyBuffer(renderer.SCDevice.LogicalDevice, stagingBuffer, null);
+        vk.FreeMemory(renderer.SCDevice.LogicalDevice, stagingBufferMemory, null);
 
         return (textureImage, textureImageMemory);
     }
 
     ImageView CreateTextureImageView(Image textureImage, VulkanRenderer renderer, Format format)
     {
-        return VulkanHelper.CreateImageView(renderer.Device, textureImage, format, ImageAspectFlags.ColorBit);
+        return VulkanHelper.CreateImageView(renderer.SCDevice, textureImage, format, ImageAspectFlags.ColorBit);
     }
 
     protected virtual void Dispose(bool disposing)
@@ -70,9 +70,9 @@ unsafe public class Texture : IDisposable
         if (!disposedValue)
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyImageView(renderer.Device, TextureImageView, null);
-            vk.DestroyImage(renderer.Device, TextureImage, null);
-            vk.FreeMemory(renderer.Device, TextureImageMemory, null);
+            vk.DestroyImageView(renderer.SCDevice.LogicalDevice, TextureImageView, null);
+            vk.DestroyImage(renderer.SCDevice.LogicalDevice, TextureImage, null);
+            vk.FreeMemory(renderer.SCDevice.LogicalDevice, TextureImageMemory, null);
             disposedValue = true;
         }
     }

@@ -26,23 +26,23 @@ unsafe public partial class VulkanRenderer
         
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(Device, PhysicalDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(SCDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
                      MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
-        vk.MapMemory(Device, stagingBufferMemory, 0, bufferSize, 0, &data);
+        vk.MapMemory(SCDevice.LogicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data);
         indices.AsSpan().CopyTo(new Span<ushort>(data, indices.Length));
-        vk.UnmapMemory(Device, stagingBufferMemory);
+        vk.UnmapMemory(SCDevice.LogicalDevice, stagingBufferMemory);
 
         Buffer indexBuffer;
         DeviceMemory indexBufferMemory;
-        (indexBuffer, indexBufferMemory) = VulkanHelper.CreateBuffer(Device, PhysicalDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit,
+        (indexBuffer, indexBufferMemory) = VulkanHelper.CreateBuffer(SCDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit,
                      MemoryPropertyFlags.DeviceLocalBit);
 
         CopyBuffer(stagingBuffer, indexBuffer, bufferSize);
 
-        vk.DestroyBuffer(Device, stagingBuffer, null);
-        vk.FreeMemory(Device, stagingBufferMemory, null);
+        vk.DestroyBuffer(SCDevice.LogicalDevice, stagingBuffer, null);
+        vk.FreeMemory(SCDevice.LogicalDevice, stagingBufferMemory, null);
 
         return new IndexBuffer(indexBuffer, indexBufferMemory, (uint) indices.Length);
     }
@@ -54,7 +54,7 @@ unsafe public partial class VulkanRenderer
 
     public void DestroyBuffer(IndexBuffer indexBuffer)
     {
-        vk.DestroyBuffer(Device, indexBuffer.Buffer, null);
-        vk.FreeMemory(Device, indexBuffer.BufferMemory, null);
+        vk.DestroyBuffer(SCDevice.LogicalDevice, indexBuffer.Buffer, null);
+        vk.FreeMemory(SCDevice.LogicalDevice, indexBuffer.BufferMemory, null);
     }
 }

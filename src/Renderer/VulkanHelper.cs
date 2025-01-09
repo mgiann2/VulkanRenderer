@@ -9,7 +9,7 @@ unsafe public static class VulkanHelper
 {
     public static readonly Vk Vk = Vk.GetApi();
 
-    public static ShaderModule CreateShaderModule(Device device, byte[] shaderCode)
+    public static ShaderModule CreateShaderModule(SCDevice scDevice, byte[] shaderCode)
     {
         ShaderModuleCreateInfo createInfo = new()
         {
@@ -23,7 +23,7 @@ unsafe public static class VulkanHelper
         {
             createInfo.PCode = (uint*) shaderCodePtr;
 
-            if (Vk.CreateShaderModule(device, in createInfo, null, out shaderModule) != Result.Success)
+            if (Vk.CreateShaderModule(scDevice.LogicalDevice, in createInfo, null, out shaderModule) != Result.Success)
             {
                 throw new Exception("Failed to create shader!");
             }
@@ -32,7 +32,7 @@ unsafe public static class VulkanHelper
         return shaderModule;
     }
 
-    public static (Buffer, DeviceMemory) CreateBuffer(Device device, PhysicalDevice physicalDevice, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
+    public static (Buffer, DeviceMemory) CreateBuffer(SCDevice scDevice, ulong size, BufferUsageFlags usage, MemoryPropertyFlags properties)
     {
         BufferCreateInfo bufferInfo = new()
         {
@@ -42,35 +42,35 @@ unsafe public static class VulkanHelper
             SharingMode = SharingMode.Exclusive
         };
 
-        if (Vk.CreateBuffer(device, in bufferInfo, null, out var newBuffer) != Result.Success)
+        if (Vk.CreateBuffer(scDevice.LogicalDevice, in bufferInfo, null, out var newBuffer) != Result.Success)
         {
             throw new Exception("Failed to create buffer!");
         }
 
         MemoryRequirements memoryRequirements;
-        Vk.GetBufferMemoryRequirements(device, newBuffer, out memoryRequirements);
+        Vk.GetBufferMemoryRequirements(scDevice.LogicalDevice, newBuffer, out memoryRequirements);
 
         MemoryAllocateInfo allocInfo = new()
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memoryRequirements.Size,
-            MemoryTypeIndex = FindMemoryType(physicalDevice, memoryRequirements.MemoryTypeBits, properties)
+            MemoryTypeIndex = FindMemoryType(scDevice, memoryRequirements.MemoryTypeBits, properties)
         };
 
-        if (Vk.AllocateMemory(device, in allocInfo, null, out var newBufferMemory) != Result.Success)
+        if (Vk.AllocateMemory(scDevice.LogicalDevice, in allocInfo, null, out var newBufferMemory) != Result.Success)
         {
             throw new Exception("Failed to allocate buffer memory!");
         }
 
-        Vk.BindBufferMemory(device, newBuffer, newBufferMemory, 0);
+        Vk.BindBufferMemory(scDevice.LogicalDevice, newBuffer, newBufferMemory, 0);
 
         return (newBuffer, newBufferMemory);
     }
 
-    public static uint FindMemoryType(PhysicalDevice physicalDevice, uint typeFilter, MemoryPropertyFlags properties)
+    public static uint FindMemoryType(SCDevice scDevice, uint typeFilter, MemoryPropertyFlags properties)
     {
         PhysicalDeviceMemoryProperties memProperties;
-        Vk.GetPhysicalDeviceMemoryProperties(physicalDevice, out memProperties);
+        Vk.GetPhysicalDeviceMemoryProperties(scDevice.PhysicalDevice, out memProperties);
 
         for (int i = 0; i < memProperties.MemoryTypeCount; i++)
         {
@@ -81,22 +81,24 @@ unsafe public static class VulkanHelper
         throw new Exception("Unable to find suitable memory type!");
     }
 
-    public static (Buffer[], DeviceMemory[]) CreateUniformBuffers(Device device, PhysicalDevice physicalDevice, ulong bufferSize, uint bufferCount)
+    public static (Buffer[], DeviceMemory[]) CreateUniformBuffers(SCDevice scDevice, ulong bufferSize, uint bufferCount)
     {
         var uniformBuffers = new Buffer[bufferCount];
         var uniformBuffersMemory = new DeviceMemory[bufferCount];
 
         for (int i = 0; i < bufferCount; i++)
         {
-            (uniformBuffers[i], uniformBuffersMemory[i]) = CreateBuffer(device, physicalDevice, bufferSize, BufferUsageFlags.UniformBufferBit,
+            (uniformBuffers[i], uniformBuffersMemory[i]) = CreateBuffer(scDevice, bufferSize, BufferUsageFlags.UniformBufferBit,
                          MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
         }
 
         return (uniformBuffers, uniformBuffersMemory);
     }
 
-    public static CommandPool CreateCommandPool(Device device, QueueFamilyIndices queueFamilyIndices)
+    public static CommandPool CreateCommandPool(SCDevice scDevice)
     {
+        var queueFamilyIndices = scDevice.QueueFamilyIndices;
+
         CommandPoolCreateInfo poolInfo = new()
         {
             SType = StructureType.CommandPoolCreateInfo,
@@ -104,7 +106,7 @@ unsafe public static class VulkanHelper
             QueueFamilyIndex = queueFamilyIndices.GraphicsFamily!.Value
         };
 
-        if (Vk.CreateCommandPool(device, in poolInfo, null, out var commandPool) != Result.Success)
+        if (Vk.CreateCommandPool(scDevice.LogicalDevice, in poolInfo, null, out var commandPool) != Result.Success)
         {
             throw new Exception("Failed to create command pool!");
         }
@@ -112,10 +114,10 @@ unsafe public static class VulkanHelper
         return commandPool;
     }
 
-    public static Sampler CreateTextureSampler(Device device, PhysicalDevice physicalDevice)
+    public static Sampler CreateTextureSampler(SCDevice scDevice)
     {
         PhysicalDeviceProperties properties;
-        Vk.GetPhysicalDeviceProperties(physicalDevice, out properties);
+        Vk.GetPhysicalDeviceProperties(scDevice.PhysicalDevice, out properties);
 
         SamplerCreateInfo samplerInfo = new()
         {
@@ -137,7 +139,7 @@ unsafe public static class VulkanHelper
             MaxLod = 0.0f
         };
 
-        if (Vk.CreateSampler(device, in samplerInfo, null, out var textureSampler) != Result.Success)
+        if (Vk.CreateSampler(scDevice.LogicalDevice, in samplerInfo, null, out var textureSampler) != Result.Success)
         {
             throw new Exception("Failed to create texture sampler!");
         }
@@ -145,14 +147,14 @@ unsafe public static class VulkanHelper
         return textureSampler;
     }
 
-    public static Semaphore CreateSemaphore(Device device)
+    public static Semaphore CreateSemaphore(SCDevice scDevice)
     {
         SemaphoreCreateInfo createInfo = new()
         {
             SType = StructureType.SemaphoreCreateInfo
         };
 
-        if (Vk.CreateSemaphore(device, in createInfo, null, out var semaphore) != Result.Success)
+        if (Vk.CreateSemaphore(scDevice.LogicalDevice, in createInfo, null, out var semaphore) != Result.Success)
         {
             throw new Exception("Failed to create semaphore!");
         }
@@ -160,7 +162,7 @@ unsafe public static class VulkanHelper
         return semaphore;
     }
 
-    public static Fence CreateFence(Device device, bool isSignaled)
+    public static Fence CreateFence(SCDevice scDevice, bool isSignaled)
     {
         FenceCreateInfo createInfo = new()
         {
@@ -168,7 +170,7 @@ unsafe public static class VulkanHelper
             Flags = isSignaled ? FenceCreateFlags.SignaledBit : FenceCreateFlags.None
         };
 
-        if (Vk.CreateFence(device, in createInfo, null, out var fence) != Result.Success)
+        if (Vk.CreateFence(scDevice.LogicalDevice, in createInfo, null, out var fence) != Result.Success)
         {
             throw new Exception("Failed to create fence!");
         }
@@ -176,7 +178,7 @@ unsafe public static class VulkanHelper
         return fence;
     }
 
-    public static (Image, DeviceMemory) CreateImage(Device device, PhysicalDevice physicalDevice, 
+    public static (Image, DeviceMemory) CreateImage(SCDevice scDevice, 
             uint width, uint height, Format format, ImageTiling tiling,
             ImageUsageFlags usage, MemoryPropertyFlags properties)
     {
@@ -195,32 +197,32 @@ unsafe public static class VulkanHelper
             Samples = SampleCountFlags.Count1Bit
         };
 
-        if (Vk.CreateImage(device, in imageInfo, null, out var image) != Result.Success)
+        if (Vk.CreateImage(scDevice.LogicalDevice, in imageInfo, null, out var image) != Result.Success)
         {
             throw new Exception("Failed to create textue image!");
         }
 
         MemoryRequirements memRequirements;
-        Vk.GetImageMemoryRequirements(device, image, out memRequirements);
+        Vk.GetImageMemoryRequirements(scDevice.LogicalDevice, image, out memRequirements);
 
         MemoryAllocateInfo allocInfo = new()
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = VulkanHelper.FindMemoryType(physicalDevice, memRequirements.MemoryTypeBits, properties)
+            MemoryTypeIndex = VulkanHelper.FindMemoryType(scDevice, memRequirements.MemoryTypeBits, properties)
         };
 
-        if (Vk.AllocateMemory(device, in allocInfo, null, out var imageMemory) != Result.Success)
+        if (Vk.AllocateMemory(scDevice.LogicalDevice, in allocInfo, null, out var imageMemory) != Result.Success)
         {
             throw new Exception("Failed to allocate texture image memory!");
         }
 
-        Vk.BindImageMemory(device, image, imageMemory, 0);
+        Vk.BindImageMemory(scDevice.LogicalDevice, image, imageMemory, 0);
 
         return (image, imageMemory);
     }
 
-    public static ImageView CreateImageView(Device device, Image image, Format format, ImageAspectFlags aspectFlags)
+    public static ImageView CreateImageView(SCDevice scDevice, Image image, Format format, ImageAspectFlags aspectFlags)
     {
         ImageViewCreateInfo viewInfo = new()
         {
@@ -238,14 +240,14 @@ unsafe public static class VulkanHelper
             }
         };
 
-        if (Vk.CreateImageView(device, in viewInfo, null, out var imageView) != Result.Success)
+        if (Vk.CreateImageView(scDevice.LogicalDevice, in viewInfo, null, out var imageView) != Result.Success)
         {
             throw new Exception("Failed to create image view!");
         }
         return imageView;
     }
 
-    public static (Image, DeviceMemory) CreateCubemapImage(Device device, PhysicalDevice physicalDevice, 
+    public static (Image, DeviceMemory) CreateCubemapImage(SCDevice scDevice, 
             uint width, uint height, Format format, ImageTiling tiling,
             ImageUsageFlags usage, MemoryPropertyFlags properties)
     {
@@ -265,32 +267,32 @@ unsafe public static class VulkanHelper
             Flags = ImageCreateFlags.CreateCubeCompatibleBit
         };
 
-        if (Vk.CreateImage(device, in imageInfo, null, out var image) != Result.Success)
+        if (Vk.CreateImage(scDevice.LogicalDevice, in imageInfo, null, out var image) != Result.Success)
         {
             throw new Exception("Failed to create textue image!");
         }
 
         MemoryRequirements memRequirements;
-        Vk.GetImageMemoryRequirements(device, image, out memRequirements);
+        Vk.GetImageMemoryRequirements(scDevice.LogicalDevice, image, out memRequirements);
 
         MemoryAllocateInfo allocInfo = new()
         {
             SType = StructureType.MemoryAllocateInfo,
             AllocationSize = memRequirements.Size,
-            MemoryTypeIndex = VulkanHelper.FindMemoryType(physicalDevice, memRequirements.MemoryTypeBits, properties)
+            MemoryTypeIndex = VulkanHelper.FindMemoryType(scDevice, memRequirements.MemoryTypeBits, properties)
         };
 
-        if (Vk.AllocateMemory(device, in allocInfo, null, out var imageMemory) != Result.Success)
+        if (Vk.AllocateMemory(scDevice.LogicalDevice, in allocInfo, null, out var imageMemory) != Result.Success)
         {
             throw new Exception("Failed to allocate texture image memory!");
         }
 
-        Vk.BindImageMemory(device, image, imageMemory, 0);
+        Vk.BindImageMemory(scDevice.LogicalDevice, image, imageMemory, 0);
 
         return (image, imageMemory);
     }
 
-    public static ImageView CreateCubemapImageView(Device device, Image image, Format format)
+    public static ImageView CreateCubemapImageView(SCDevice scDevice, Image image, Format format)
     {
         ImageViewCreateInfo viewInfo = new()
         {
@@ -308,24 +310,24 @@ unsafe public static class VulkanHelper
             }
         };
 
-        if (Vk.CreateImageView(device, in viewInfo, null, out var imageView) != Result.Success)
+        if (Vk.CreateImageView(scDevice.LogicalDevice, in viewInfo, null, out var imageView) != Result.Success)
         {
             throw new Exception("Failed to create image view!");
         }
         return imageView;
     }
 
-    public static Format FindDepthFormat(PhysicalDevice physicalDevice)
+    public static Format FindDepthFormat(SCDevice scDevice)
     {
         var candidates = new Format[] { Format.D32Sfloat, Format.D32SfloatS8Uint, Format.D24UnormS8Uint };
-        return FindSupportedFormat(physicalDevice, candidates, ImageTiling.Optimal, FormatFeatureFlags.DepthStencilAttachmentBit);
+        return FindSupportedFormat(scDevice, candidates, ImageTiling.Optimal, FormatFeatureFlags.DepthStencilAttachmentBit);
     }
 
-    private static Format FindSupportedFormat(PhysicalDevice physicalDevice, Format[] candidates, ImageTiling tiling, FormatFeatureFlags features)
+    private static Format FindSupportedFormat(SCDevice scDevice, Format[] candidates, ImageTiling tiling, FormatFeatureFlags features)
     {
         foreach (var format in candidates)
         {
-            Vk.GetPhysicalDeviceFormatProperties(physicalDevice, format, out FormatProperties props);
+            Vk.GetPhysicalDeviceFormatProperties(scDevice.PhysicalDevice, format, out FormatProperties props);
             if (tiling == ImageTiling.Linear && (props.LinearTilingFeatures & features) == features)
             {
                 return format;

@@ -12,7 +12,7 @@ unsafe public class RenderStage : IDisposable
 
     private Vk vk;
     private CommandPool commandPool;
-    private Device device;
+    private SCDevice scDevice;
     private Extent2D extent;
 
     bool disposedValue;
@@ -20,10 +20,10 @@ unsafe public class RenderStage : IDisposable
     public RenderPass RenderPass { get; }
     public List<ClearValue> ClearValues = new();
 
-    public RenderStage(Device device, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, CommandPool commandPool, Extent2D extent, uint framebufferCount, uint commandBufferCount)
+    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, CommandPool commandPool, Extent2D extent, uint framebufferCount, uint commandBufferCount)
     {
         vk = VulkanHelper.Vk;
-        this.device = device;
+        this.scDevice = scDevice;
         this.commandPool = commandPool;
         this.extent = extent;
 
@@ -47,7 +47,7 @@ unsafe public class RenderStage : IDisposable
             fixed (ImageView* attachmentsPtr = attachments)
                 framebufferInfo.PAttachments = attachmentsPtr;
 
-            if (vk.CreateFramebuffer(device, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
+            if (vk.CreateFramebuffer(scDevice.LogicalDevice, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
             {
                 throw new Exception("Failed to create framebuffer!");
             }
@@ -65,7 +65,7 @@ unsafe public class RenderStage : IDisposable
 
         fixed (CommandBuffer* commandBuffersPtr = tmpCommandBuffers)
         {
-            if (vk.AllocateCommandBuffers(device, in allocInfo, commandBuffersPtr) != Result.Success)
+            if (vk.AllocateCommandBuffers(scDevice.LogicalDevice, in allocInfo, commandBuffersPtr) != Result.Success)
             {
                 throw new Exception("Failed to allocate command buffers!");
             }
@@ -81,7 +81,7 @@ unsafe public class RenderStage : IDisposable
 
         for (uint i = 0; i < commandBufferCount; i++) 
         {
-            if (vk.CreateSemaphore(device, in semaphoreInfo, null, out signalSemaphores[i]) != Result.Success)
+            if (vk.CreateSemaphore(scDevice.LogicalDevice, in semaphoreInfo, null, out signalSemaphores[i]) != Result.Success)
             {
                 throw new Exception("Failed to create semaphores!");
             }
@@ -231,14 +231,14 @@ unsafe public class RenderStage : IDisposable
         if (!disposedValue)
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyRenderPass(device, RenderPass, null);
+            vk.DestroyRenderPass(scDevice.LogicalDevice, RenderPass, null);
 
             fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
-                vk.FreeCommandBuffers(device, commandPool, (uint) commandBuffers.Length, commandBuffersPtr);
+                vk.FreeCommandBuffers(scDevice.LogicalDevice, commandPool, (uint) commandBuffers.Length, commandBuffersPtr);
             
             foreach (var framebuffer in framebuffers)
             {
-                vk.DestroyFramebuffer(device, framebuffer, null);
+                vk.DestroyFramebuffer(scDevice.LogicalDevice, framebuffer, null);
             }
 
             foreach (var framebufferAttachmentCollection in framebufferAttachmentCollections)
@@ -248,7 +248,7 @@ unsafe public class RenderStage : IDisposable
 
             foreach (var semaphore in signalSemaphores)
             {
-                vk.DestroySemaphore(device, semaphore, null);
+                vk.DestroySemaphore(scDevice.LogicalDevice, semaphore, null);
             }
 
             disposedValue = true;
