@@ -64,6 +64,57 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
     }
 }
 
+unsafe public class DepthOnlyAttachment : IFramebufferAttachmentCollection
+{
+    public ImageAttachment Depth { get; }
+
+    public IReadOnlyList<IFramebufferAttachment> ColorAttachments 
+    {
+        get
+        {
+            return new IFramebufferAttachment[] { };
+        }
+    }
+    public IFramebufferAttachment DepthAttachment { get => Depth; } 
+    public ImageView[] Attachments
+    {
+        get
+        {
+            return new ImageView[] { Depth.ImageView };
+        }
+    }
+
+    private bool disposedValue;
+
+    public DepthOnlyAttachment(SCDevice scDevice, Extent2D imageExtent)
+    {
+        Depth = new ImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice), 
+                ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            // free unmanaged resources (unmanaged objects) and override finalizer
+            Depth.Dispose();
+
+            disposedValue = true;
+        }
+    }
+
+    ~DepthOnlyAttachment()
+    {
+        Dispose(disposing: false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+}
+
 unsafe public class GBufferAttachments : IFramebufferAttachmentCollection
 {
     public ImageAttachment Albedo { get; }

@@ -40,6 +40,9 @@ unsafe public partial class VulkanRenderer
     const string IrradianceMapVertexShaderFilename = "cubemap.vert.spv";
     const string IrradianceMapFragmentShaderFilename = "irradiance.frag.spv";
 
+    const string DepthVertexShaderFilename = "depth.vert.spv";
+    const string DepthFragmentShaderFilename = "depth.frag.spv";
+
     const uint GeometryPassColorAttachmentCount = 4;
     const uint CompositionPassColorAttachmentCount = 2;
     const uint BloomPassColorAttachmentCount = 1;
@@ -77,6 +80,7 @@ unsafe public partial class VulkanRenderer
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
                        .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
                        .AddDescriptorSetLayout(screenTextureDescriptorSetLayout)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -202,6 +206,23 @@ unsafe public partial class VulkanRenderer
         return pipelineBuilder.Build(renderPass, 0);    
     }
 
+    GraphicsPipeline CreateDepthPipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + DepthVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + DepthFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(SCDevice);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(0)
+                       .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddPushConstantRange((uint) Unsafe.SizeOf<Matrix4X4<float>>(), 0, ShaderStageFlags.VertexBit);
+
+        return pipelineBuilder.Build(renderPass, 0);
+    }
+
     // Scene Info Descriptor Set
     // -------------------------
 
@@ -290,6 +311,59 @@ unsafe public partial class VulkanRenderer
                 Buffer = sceneInfoBuffers[i],
                 Offset = 0,
                 Range = (ulong) Unsafe.SizeOf<SceneInfo>()
+            };
+
+            WriteDescriptorSet descriptorWrite = new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &bufferInfo
+            };
+
+            vk.UpdateDescriptorSets(SCDevice.LogicalDevice, 1, ref descriptorWrite, 0, default);
+        }
+
+        return descriptorSets;
+    }
+
+    DescriptorSet[] CreateShadowInfoDescriptorSets(Buffer[] shadowInfoBuffers)
+    {
+        int setCount = shadowInfoBuffers.Length; 
+        var descriptorSets = new DescriptorSet[setCount];
+
+        var layouts = new DescriptorSetLayout[setCount];
+        Array.Fill(layouts, sceneInfoDescriptorSetLayout);
+        
+        fixed (DescriptorSetLayout* layoutsPtr = layouts)
+        {
+            DescriptorSetAllocateInfo allocInfo = new()
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                PSetLayouts = layoutsPtr,
+                DescriptorSetCount = (uint) layouts.Length,
+                DescriptorPool = sceneInfoDescriptorPool
+            };
+            
+            fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+            {
+                if (vk.AllocateDescriptorSets(SCDevice.LogicalDevice, in allocInfo, descriptorSetsPtr) != Result.Success)
+                {
+                    throw new Exception("Failed to allocate descriptor sets!");
+                }
+            }
+        }
+
+        for (int i = 0; i < setCount; i++)
+        {
+            DescriptorBufferInfo bufferInfo = new()
+            {
+                Buffer = shadowInfoBuffers[i],
+                Offset = 0,
+                Range = (ulong) Unsafe.SizeOf<ShadowInfo>()
             };
 
             WriteDescriptorSet descriptorWrite = new()

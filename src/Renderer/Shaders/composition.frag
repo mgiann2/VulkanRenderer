@@ -5,11 +5,13 @@ layout (set = 1, binding = 1) uniform sampler2D normalSampler;
 layout (set = 1, binding = 2) uniform sampler2D aoRoughnessMetalnessSampler;
 layout (set = 1, binding = 3) uniform sampler2D positionSampler;
 layout (set = 2, binding = 0) uniform samplerCube irradianceMap;
+layout (set = 3, binding = 0) uniform sampler2D directionalShadowMap;
 
 layout (location = 0) in vec3 inCameraPos;
 layout (location = 1) in vec2 inTexCoord;
 layout (location = 2) in vec3 inDirectionalLightDir;
 layout (location = 3) in vec3 inDirectionalLightColor;
+layout (location = 4) in vec4 inFragPosLightSpace;
 
 layout (location = 0) out vec4 outColor;
 layout (location = 1) out vec4 outThresholdColor;
@@ -21,6 +23,7 @@ float NormalDistribution(vec3 N, vec3 H, float roughness);
 float GeometrySchlick(float NdotV, float roughness);
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
 vec3 FresnelSchlick(float cosTheta, vec3 F0);
+float ShadowCalculation(vec4 fragPosLightSpace);
 
 void main() {
     // get needed light variables
@@ -69,7 +72,8 @@ void main() {
         float NdotL = max(dot(N, L), 0.0);
         vec3 specular = (normalDist * geometry * fresnel) / (4.0 * NdotV * NdotL + 0.0001);
 
-        Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+        float shadow = ShadowCalculation(inFragPosLightSpace);
+        Lo += (kD * albedo / PI + specular) * radiance * shadow * NdotL;
     }
 
     // compute ambient light
@@ -125,4 +129,13 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
 
 vec3 FresnelSchlick(float cosTheta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+float ShadowCalculation(vec4 fragPosLightSpace)
+{
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    projCoords = projCoords * 0.5 + 0.5;
+    float closestDepth = texture(directionalShadowMap, projCoords.xy).r;
+    float currentDepth = projCoords.z;
+    return currentDepth > closestDepth ? 1.0 : 0.0;
 }

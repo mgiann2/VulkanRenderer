@@ -1,11 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Silk.NET.Core;
-using Silk.NET.Core.Contexts;
-using Silk.NET.Core.Native;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
-using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
@@ -21,6 +17,13 @@ public struct SceneInfo
     [FieldOffset(128)]public Vector3D<float> CameraPosition;
     [FieldOffset(144)]public Vector3D<float> DirectionalLightDirection;
     [FieldOffset(160)]public Vector3D<float> DirectionalLightColor;
+    [FieldOffset(176)]public Matrix4X4<float> LightSpaceMatrix;
+}
+
+[StructLayout(LayoutKind.Explicit)]
+public struct ShadowInfo
+{
+    [FieldOffset(0)]public Matrix4X4<float> LightSpaceMatrix;
 }
 
 [StructLayout(LayoutKind.Explicit)]
@@ -38,16 +41,35 @@ public struct SolidColorObjectInfo
     [FieldOffset(64)]public Vector3D<float> Color;
 }
 
-unsafe public partial class VulkanRenderer
+struct DrawCall
+{
+    public Model Model { get; }
+    public Matrix4X4<float> ModelMatrix { get; }
+    public Vector3D<float> Color { get; }
+
+    public DrawCall(Model model, Matrix4X4<float> modelMatrix, Vector3D<float> color)
+    {
+        Model = model;
+        ModelMatrix = modelMatrix;
+        Color = color;
+    }
+}
+
+unsafe public partial class VulkanRenderer : IDisposable
 {
     const string AssetsPath = "assets/";
     const string ShadersPath = "compiled_shaders/";
+
+    private List<DrawCall> solidModelDrawCalls = new();
+    private List<DrawCall> transparentModelDrawCalls = new();
 
     // TODO: temporary to test lights
     public List<Light> Lights = new List<Light>();
 
     readonly bool EnableValidationLayers;
     const int MaxFramesInFlight = 2;
+    const int MaxLights = 512;
+    const int CubemapMapSceneInfoDescriptors = 6;
     const uint MaxGBufferDescriptorSets = 20;
 
     const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
@@ -78,6 +100,7 @@ unsafe public partial class VulkanRenderer
     SwapChainAttachment[] swapChainAttachments;
     SingleColorAttachment[] environmentMapAttachments;
     SingleColorAttachment[] irradianceMapAttachments;
+    DepthOnlyAttachment depthMapAttachment;
 
     RenderStage geometryRenderStage;
     RenderStage compositionRenderStage;
@@ -86,9 +109,12 @@ unsafe public partial class VulkanRenderer
     RenderStage postProcessRenderStage;
     RenderStage equirectangularToCubemapRenderStage;
     RenderStage irradianceMapRenderStage;
+    RenderStage depthMapRenderStage;
 
     Buffer[] sceneInfoBuffers;
     DeviceMemory[] sceneInfoBuffersMemory;
+    Buffer[] dirShadowBuffers;
+    DeviceMemory[] dirShadowBuffersMemory;
 
     DescriptorSetLayout sceneInfoDescriptorSetLayout;
     DescriptorSetLayout materialInfoDescriptorSetLayout;
@@ -101,9 +127,11 @@ unsafe public partial class VulkanRenderer
     DescriptorPool singleTextureDescriptorPool;
 
     DescriptorSet[] sceneInfoDescriptorSets;
+    DescriptorSet[] dirShadowInfoDescriptorSets;
     DescriptorSet[] screenTextureInfoDescriptorSets;
     DescriptorSet[] compositionOutputTextureDescriptorSets;
     DescriptorSet[] thresholdTextureDescriptorSets;
+    DescriptorSet[] dirShadowMapDescriptorSets;
     DescriptorSet[] bloomPass1OutputTextureDescriptorSets;
     DescriptorSet[] bloomPass2OutputTextureDescriptorSets;
     DescriptorSet skyboxTextureDescriptorSet;
@@ -119,6 +147,7 @@ unsafe public partial class VulkanRenderer
     GraphicsPipeline postProcessPipeline;
     GraphicsPipeline equirectangularToCubemapPipeline;
     GraphicsPipeline irradianceMapPipeline;
+    GraphicsPipeline depthPipeline;
 
     CommandPool commandPool;
 
@@ -148,10 +177,11 @@ unsafe public partial class VulkanRenderer
         commandPool = VulkanHelper.CreateCommandPool(SCDevice);
 
         (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
+        (dirShadowBuffers, dirShadowBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<ShadowInfo>(), MaxFramesInFlight);
         textureSampler = VulkanHelper.CreateTextureSampler(SCDevice);
 
         // Create descriptor pools
-        sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool(MaxFramesInFlight + 6);
+        sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool(MaxFramesInFlight + MaxLights + CubemapMapSceneInfoDescriptors);
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxGBufferDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
         singleTextureDescriptorPool = CreateSingleTextureDescriptorPool(20);
@@ -170,15 +200,18 @@ unsafe public partial class VulkanRenderer
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
         (equirectangularToCubemapRenderStage, environmentMapAttachments) = CreateEquirectangularToCubemapRenderStage();
         (irradianceMapRenderStage, irradianceMapAttachments) = CreateIrradianceMapRenderStage();
+        (depthMapRenderStage, depthMapAttachment) = CreateDepthMapRenderStage();
 
-        // Create composition pass descriptor set
+        // Create descriptor sets
         sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(sceneInfoBuffers);
+        dirShadowInfoDescriptorSets = CreateShadowInfoDescriptorSets(dirShadowBuffers);
         screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments.Albedo.ImageView,
                                                                                 gBufferAttachments.Normal.ImageView,
                                                                                 gBufferAttachments.AoRoughnessMetalness.ImageView,
                                                                                 gBufferAttachments.Position.ImageView);
         compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView, MaxFramesInFlight);
         thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView, MaxFramesInFlight);
+        dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Depth.ImageView, MaxFramesInFlight);
         bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, MaxFramesInFlight);
         bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, MaxFramesInFlight);
 
@@ -193,6 +226,7 @@ unsafe public partial class VulkanRenderer
         postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
         equirectangularToCubemapPipeline = CreateEquirectangularToCubemapPipeline(equirectangularToCubemapRenderStage.RenderPass);
         irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
+        depthPipeline = CreateDepthPipeline(depthMapRenderStage.RenderPass);
 
         CreateSyncObjects(out imageAvailableSemaphores, out inFlightFences);
 
@@ -201,7 +235,7 @@ unsafe public partial class VulkanRenderer
         cubeMesh = PrimitiveMesh.CreateCubeMesh(this);
         sphereMesh = LoadMesh(SphereMeshPath);
 
-        // generate irradiance cubemap
+        // Generate irradiance cubemap
         skyboxCubemap = CreateSkyboxCubemap();
         irradianceCubemap = CreateIrradianceCubemap(skyboxCubemap);
 
@@ -236,6 +270,15 @@ unsafe public partial class VulkanRenderer
         geometryRenderStage.ResetCommandBuffer(currentFrame);
         compositionRenderStage.ResetCommandBuffer(currentFrame);
         postProcessRenderStage.ResetCommandBuffer(currentFrame);
+        depthMapRenderStage.ResetCommandBuffer(currentFrame);
+
+        solidModelDrawCalls.Clear();
+        transparentModelDrawCalls.Clear();
+    }
+
+    public void EndFrame()
+    {
+        if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new one!");
 
         // Begin Geometry Render Pass
         // --------------------------
@@ -247,16 +290,52 @@ unsafe public partial class VulkanRenderer
 
         vk.CmdBindDescriptorSets(geometryCommandBuffer, PipelineBindPoint.Graphics,
                                  geometryPipeline.Layout, 0, 1, in sceneInfoDescriptorSets[currentFrame], 0, default);
-    }
 
-    public void EndFrame()
-    {
-        if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new one!");
+        foreach (var drawCall in solidModelDrawCalls)
+        {
+            var model = drawCall.Model;
+            var modelMatrix = drawCall.ModelMatrix;
 
-        // End geometry render stage
+            Bind(model.Mesh.VertexBuffer, geometryCommandBuffer);
+            Bind(model.Mesh.IndexBuffer, geometryCommandBuffer);
+            BindMaterial(model.Material);
+
+            vk.CmdPushConstants(geometryCommandBuffer, geometryPipeline.Layout,
+                            ShaderStageFlags.VertexBit, 0, (uint) Unsafe.SizeOf<Matrix4X4<float>>(), &modelMatrix);
+            vk.CmdDrawIndexed(geometryCommandBuffer, model.Mesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        }
+
         geometryRenderStage.EndRenderPass(currentFrame);
         geometryRenderStage.EndCommands(currentFrame);
-        
+
+        // Begin directional light shadow render pass
+        // ------------------------------------------
+        depthMapRenderStage.BeginCommands(currentFrame);
+        depthMapRenderStage.BeginRenderPass(currentFrame, 0);
+        var depthMapCommandBuffer = depthMapRenderStage.GetCommandBuffer(currentFrame);
+
+        // draw depth map of directional light
+        var shadowMapDescriptorSets = stackalloc[] { dirShadowInfoDescriptorSets[currentFrame] };
+        vk.CmdBindPipeline(depthMapCommandBuffer, PipelineBindPoint.Graphics, depthPipeline.Pipeline);
+        vk.CmdBindDescriptorSets(depthMapCommandBuffer, PipelineBindPoint.Graphics,
+                depthPipeline.Layout, 0, 1, shadowMapDescriptorSets, 0, default);
+
+        foreach (var drawCall  in solidModelDrawCalls)
+        {
+            var model = drawCall.Model;
+            var modelMatrix = drawCall.ModelMatrix;
+
+            Bind(model.Mesh.VertexBuffer, depthMapCommandBuffer);
+            Bind(model.Mesh.IndexBuffer, depthMapCommandBuffer);
+
+            vk.CmdPushConstants(depthMapCommandBuffer, depthPipeline.Layout,
+                            ShaderStageFlags.VertexBit, 0, (uint) Unsafe.SizeOf<Matrix4X4<float>>(), &modelMatrix);
+            vk.CmdDrawIndexed(depthMapCommandBuffer, model.Mesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
+        }
+
+        depthMapRenderStage.EndRenderPass(currentFrame);
+        depthMapRenderStage.EndCommands(currentFrame);
+
         // Begin composition render pass
         // -----------------------------
         compositionRenderStage.BeginCommands(currentFrame);
@@ -278,12 +357,13 @@ unsafe public partial class VulkanRenderer
         { 
             sceneInfoDescriptorSets[currentFrame],
             screenTextureInfoDescriptorSets[currentFrame],
-            irradianceMapDescriptorSet
+            irradianceMapDescriptorSet,
+            dirShadowMapDescriptorSets[currentFrame]
         };
 
         vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, compositionPipeline.Pipeline);
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
-                compositionPipeline.Layout, 0, 3, descriptorSets, 0, default);
+                compositionPipeline.Layout, 0, 4, descriptorSets, 0, default);
 
         Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffer);
         Bind(screenQuadMesh.IndexBuffer, compositionCommandBuffer);
@@ -387,12 +467,19 @@ unsafe public partial class VulkanRenderer
         postProcessRenderStage.EndRenderPass(currentFrame);
         postProcessRenderStage.EndCommands(currentFrame);
 
+        // Submit commands
+        // ---------------
+
         // submit geometry commands
         var geomWaitSemaphores = new Semaphore[] { imageAvailableSemaphores[currentFrame] };
         geometryRenderStage.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, geomWaitSemaphores);
-        
+
+        // submit directional light depth map commands
+        var depthMapWaitSemaphores = new Semaphore[] { geometryRenderStage.GetSignalSemaphore(currentFrame) };
+        depthMapRenderStage.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, depthMapWaitSemaphores);
+
         // submit composition commands
-        var compWaitSemaphores = new Semaphore[] { geometryRenderStage.GetSignalSemaphore(currentFrame) };
+        var compWaitSemaphores = new Semaphore[] { depthMapRenderStage.GetSignalSemaphore(currentFrame) };
         compositionRenderStage.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, compWaitSemaphores);
 
         // submit bloom commands
@@ -433,6 +520,11 @@ unsafe public partial class VulkanRenderer
         currentFrame = (currentFrame + 1) % MaxFramesInFlight;
     }
 
+    public void DrawModel(Model model, Matrix4X4<float> modelMatrix)
+    {
+        solidModelDrawCalls.Add(new(model, modelMatrix, Vector3D<float>.Zero));
+    }
+
     public void DeviceWaitIdle()
     {
         vk.DeviceWaitIdle(SCDevice.LogicalDevice);
@@ -440,10 +532,24 @@ unsafe public partial class VulkanRenderer
 
     public void UpdateSceneInfo(SceneInfo sceneInfo)
     {
-        void* data;
-        vk.MapMemory(SCDevice.LogicalDevice, sceneInfoBuffersMemory[currentFrame], 0, (ulong) Unsafe.SizeOf<SceneInfo>(), 0, &data);
-        new Span<SceneInfo>(data, 1)[0] = sceneInfo;
-        vk.UnmapMemory(SCDevice.LogicalDevice, sceneInfoBuffersMemory[currentFrame]);
+        // update scene info buffer
+        {
+            void* data;
+            vk.MapMemory(SCDevice.LogicalDevice, sceneInfoBuffersMemory[currentFrame], 0, (ulong) Unsafe.SizeOf<SceneInfo>(), 0, &data);
+            new Span<SceneInfo>(data, 1)[0] = sceneInfo;
+            vk.UnmapMemory(SCDevice.LogicalDevice, sceneInfoBuffersMemory[currentFrame]);
+        }
+
+        // update directional light shadow buffer
+        {
+            ShadowInfo shadowInfo;
+            shadowInfo.LightSpaceMatrix = sceneInfo.LightSpaceMatrix;
+
+            void* data;
+            vk.MapMemory(SCDevice.LogicalDevice, dirShadowBuffersMemory[currentFrame], 0, (ulong) Unsafe.SizeOf<ShadowInfo>(), 0, &data);
+            new Span<ShadowInfo>(data, 1)[0] = shadowInfo;
+            vk.UnmapMemory(SCDevice.LogicalDevice, dirShadowBuffersMemory[currentFrame]);
+        }
     }
 
     public void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout, uint layers = 1)
@@ -987,7 +1093,35 @@ unsafe public partial class VulkanRenderer
         return (renderStage, cubefaceAttachments);
     }
 
-    public void BindMaterial(Material material)
+    (RenderStage, DepthOnlyAttachment) CreateDepthMapRenderStage()
+    {
+        DepthOnlyAttachment depthAttachments = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        
+        RenderPassBuilder renderPassBuilder = new(SCDevice);
+        renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice))
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
+                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
+                                        DependencyFlags.None)
+                         .AddDependency(Vk.SubpassExternal, 0,
+                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
+                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
+                                        DependencyFlags.None);
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, commandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+
+        var clearColors = new ClearValue[]
+        {
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, depthAttachments);
+    }
+
+    void BindMaterial(Material material)
     {
         var geometryCommandBuffer = geometryRenderStage.GetCommandBuffer(currentFrame);
 
@@ -1061,11 +1195,10 @@ unsafe public partial class VulkanRenderer
 
         vk.FreeCommandBuffers(SCDevice.LogicalDevice, commandPool, 1, in commandBuffer);
     }
-}
 
-// IDisposable methods
-unsafe public partial class VulkanRenderer : IDisposable
-{
+    // IDisposable Methods
+    // -------------------
+
     ~VulkanRenderer()
     {
         Dispose(disposing: false);
@@ -1113,3 +1246,4 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
     }
 }
+
