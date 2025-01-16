@@ -214,7 +214,7 @@ unsafe public partial class VulkanRenderer
         GraphicsPipelineBuilder pipelineBuilder = new(SCDevice);
         pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
                        .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
-                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(0)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
                        .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)

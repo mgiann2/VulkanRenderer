@@ -47,7 +47,7 @@ unsafe public class RenderPassBuilder
         return this;
     }
 
-    public RenderPassBuilder SetDepthStencilAttachment(Format format)
+    public RenderPassBuilder SetDepthStencilAttachment(Format format, ImageLayout finalLayout = ImageLayout.DepthStencilAttachmentOptimal)
     {
         AttachmentDescription attachmentDescription = new()
         {
@@ -57,7 +57,7 @@ unsafe public class RenderPassBuilder
             StencilLoadOp = AttachmentLoadOp.DontCare,
             StencilStoreOp = AttachmentStoreOp.DontCare,
             InitialLayout = ImageLayout.Undefined,
-            FinalLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            FinalLayout = finalLayout,
             Format = format
         };
 

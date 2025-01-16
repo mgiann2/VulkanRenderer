@@ -16,14 +16,14 @@ layout (location = 0) out vec3 outCameraPos;
 layout (location = 1) out vec2 outTexCoord;
 layout (location = 2) out vec3 outDirectionalLightDir;
 layout (location = 3) out vec3 outDirectionalLightColor;
-layout (location = 4) out vec4 outFragPosLightSpace;
+layout (location = 4) out mat4 outLightSpaceMatrix;
 
 void main() {
     outCameraPos = sceneInfo.cameraPos;
     outTexCoord = inTexCoord;
     outDirectionalLightDir = sceneInfo.directionalLightDirection;
     outDirectionalLightColor = sceneInfo.directionalLightColor;
-    outFragPosLightSpace = sceneInfo.lightSpaceMatrix * vec4(inPos, 1.0);
+    outLightSpaceMatrix = sceneInfo.lightSpaceMatrix;
 
     gl_Position = vec4(inPos, 1.0);
 }

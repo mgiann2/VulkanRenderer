@@ -16,11 +16,13 @@ class Program
     static IInputContext? input;
 
     static Camera? camera;
+
     static Transform? computerTransform;
     static Model computerModel;
-
     static Model cubeModel;
     static Transform? cubeTransform;
+    static Model quadModel;
+    static Transform? quadTransform;
 
     static Light[]? lights;
     
@@ -67,7 +69,7 @@ class Program
         prevMousePosition = new Vector2D<float>(window.Size.X / 2, window.Size.Y / 2);
 
         // load scene objects
-        camera = new Camera(new Vector3D<float>(0f, 0.5f, -3f), Vector3D<float>.Zero, Vector3D<float>.One, 45.0f);
+        camera = new Camera(new Vector3D<float>(2.0f, 1.0f, -4.0f), Vector3D<float>.Zero, Vector3D<float>.One, 45.0f);
 
         computerModel = renderer!.LoadModel(ComputerModelPath + "scene.gltf",
                                     ComputerModelPath + ComputerTexturePath + "baseColor.png",
@@ -81,17 +83,20 @@ class Program
         cubeModel = new Model(PrimitiveMesh.CreateCubeMesh(renderer), paintedMetalMaterial);
         cubeTransform = new Transform(new Vector3D<float>(4.0f, 0.0f, 0.0f), Vector3D<float>.Zero, Vector3D<float>.One);
 
+        quadModel = new Model(PrimitiveMesh.CreateQuadMesh(renderer), paintedMetalMaterial);
+        quadTransform = new Transform(new Vector3D<float>(0.0f, -0.51f, 0.0f), new Vector3D<float>(90.0f, 0.0f, 0.0f), new Vector3D<float>(10.0f));
+
         lights = new Light[]
         {
             new()
             {
                 Position = new Vector3D<float>(-2.0f, 2.0f, 0.0f),
-                Color = new Vector3D<float>(1.0f, 1.0f, 1.0f),
+                Color = new Vector3D<float>(0.0f, 2.0f, 0.0f),
             },
             new()
             {
                 Position = new Vector3D<float>(2.0f, 2.0f, 0.0f),
-                Color = new Vector3D<float>(1.0f, 1.0f, 1.0f)
+                Color = new Vector3D<float>(0.0f, 0.0f, 2.0f)
             }
         }; 
         renderer!.Lights.AddRange(lights);
@@ -115,13 +120,14 @@ class Program
             CameraView = camera!.GetViewMatrix(),
             CameraProjection = camera!.GetProjectionMatrix((float) width / height),
             CameraPosition = camera!.Transform.Position,
-            DirectionalLightDirection = new Vector3D<float>(1.0f, -1.0f, 0.0f),
-            DirectionalLightColor = new Vector3D<float>(0.1f),
+            DirectionalLightDirection = new Vector3D<float>(2.0f, -4.0f, 1.0f),
+            DirectionalLightColor = new Vector3D<float>(0.35f, 0.25f, 0.2f),
         };
-        Matrix4X4<float> lightView = Matrix4X4.CreateLookAt<float>(sceneInfo.CameraPosition,
-                    sceneInfo.CameraPosition + sceneInfo.DirectionalLightDirection, Vector3D<float>.UnitY);
-        Matrix4X4<float> lightProj = Matrix4X4.CreateOrthographicOffCenter(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 10.0f);
-        sceneInfo.LightSpaceMatrix = lightProj * lightView;
+        Matrix4X4<float> lightView = Matrix4X4.CreateLookAt<float>(new Vector3D<float>(-2.0f, 4.0f, -1.0f),
+                                                                   Vector3D<float>.Zero,
+                                                                   Vector3D<float>.UnitY);
+        Matrix4X4<float> lightProj = Matrix4X4.CreateOrthographicOffCenter(-10.0f, 10.0f, 10.0f, -10.0f, 1.0f, 7.5f);
+        sceneInfo.LightSpaceMatrix = lightView * lightProj;
 
         renderer!.UpdateSceneInfo(sceneInfo);
 
@@ -130,6 +136,7 @@ class Program
 
         renderer.DrawModel(computerModel, computerTransform!.Matrix);
         renderer.DrawModel(cubeModel, cubeTransform!.Matrix);
+        renderer.DrawModel(quadModel, quadTransform!.Matrix);
 
         renderer.EndFrame();
     }

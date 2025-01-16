@@ -71,6 +71,8 @@ unsafe public partial class VulkanRenderer : IDisposable
     const int MaxLights = 512;
     const int CubemapMapSceneInfoDescriptors = 6;
     const uint MaxGBufferDescriptorSets = 20;
+    const uint ShadowMapWidth = 2048;
+    const uint ShadowMapHeight = 2048;
 
     const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
     const string SkyboxTexturePath = AssetsPath + "hdris/EveningSkyHDRI.jpg";
@@ -315,10 +317,9 @@ unsafe public partial class VulkanRenderer : IDisposable
         var depthMapCommandBuffer = depthMapRenderStage.GetCommandBuffer(currentFrame);
 
         // draw depth map of directional light
-        var shadowMapDescriptorSets = stackalloc[] { dirShadowInfoDescriptorSets[currentFrame] };
         vk.CmdBindPipeline(depthMapCommandBuffer, PipelineBindPoint.Graphics, depthPipeline.Pipeline);
         vk.CmdBindDescriptorSets(depthMapCommandBuffer, PipelineBindPoint.Graphics,
-                depthPipeline.Layout, 0, 1, shadowMapDescriptorSets, 0, default);
+                depthPipeline.Layout, 0, 1, in dirShadowInfoDescriptorSets[currentFrame], 0, default);
 
         foreach (var drawCall  in solidModelDrawCalls)
         {
@@ -726,10 +727,10 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Create descriptor sets
         Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
         {
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
         };
@@ -1095,10 +1096,11 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     (RenderStage, DepthOnlyAttachment) CreateDepthMapRenderStage()
     {
-        DepthOnlyAttachment depthAttachments = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        var shadowMapExtent = new Extent2D{ Width = ShadowMapWidth, Height = ShadowMapHeight };
+        DepthOnlyAttachment depthAttachments = new(SCDevice, shadowMapExtent);
         
         RenderPassBuilder renderPassBuilder = new(SCDevice);
-        renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice))
+        renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice), ImageLayout.ShaderReadOnlyOptimal)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
@@ -1110,7 +1112,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, commandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, commandPool, shadowMapExtent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
