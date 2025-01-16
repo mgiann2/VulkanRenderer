@@ -294,7 +294,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             var model = drawCall.Model;
             var modelMatrix = drawCall.ModelMatrix;
 
-            Bind(model.Mesh.VertexBuffer, geometryCommandBuffer);
+            model.Mesh.VertexBuffer.Bind(geometryCommandBuffer);
             model.Mesh.IndexBuffer.Bind(geometryCommandBuffer);
             BindMaterial(model.Material);
 
@@ -322,7 +322,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             var model = drawCall.Model;
             var modelMatrix = drawCall.ModelMatrix;
 
-            Bind(model.Mesh.VertexBuffer, depthMapCommandBuffer);
+            model.Mesh.VertexBuffer.Bind(depthMapCommandBuffer);
             model.Mesh.IndexBuffer.Bind(depthMapCommandBuffer);
 
             vk.CmdPushConstants(depthMapCommandBuffer, depthPipeline.Layout,
@@ -345,7 +345,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 skyboxPipeline.Layout, 0, 2, skyboxDescriptorSets, 0, default);
 
-        Bind(cubeMesh.VertexBuffer, compositionCommandBuffer);
+        cubeMesh.VertexBuffer.Bind(compositionCommandBuffer);
         cubeMesh.IndexBuffer.Bind(compositionCommandBuffer);
         vk.CmdDrawIndexed(compositionCommandBuffer, cubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
@@ -362,7 +362,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 compositionPipeline.Layout, 0, 4, descriptorSets, 0, default);
 
-        Bind(screenQuadMesh.VertexBuffer, compositionCommandBuffer);
+        screenQuadMesh.VertexBuffer.Bind(compositionCommandBuffer);
         screenQuadMesh.IndexBuffer.Bind(compositionCommandBuffer);
         vk.CmdDrawIndexed(compositionCommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
@@ -370,7 +370,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, solidColorPipeine.Pipeline);
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 solidColorPipeine.Layout, 0, 1, descriptorSets, 0, default);
-        Bind(cubeMesh.VertexBuffer, compositionCommandBuffer);
+        cubeMesh.VertexBuffer.Bind(compositionCommandBuffer);
         cubeMesh.IndexBuffer.Bind(compositionCommandBuffer);
 
         var scaleMatrix = Matrix4X4.CreateScale<float>(0.1f);
@@ -389,7 +389,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.CmdBindPipeline(compositionCommandBuffer, PipelineBindPoint.Graphics, lightingPipeline.Pipeline);
         vk.CmdBindDescriptorSets(compositionCommandBuffer, PipelineBindPoint.Graphics,
                 lightingPipeline.Layout, 0, 2, descriptorSets, 0, default);
-        Bind(sphereMesh.VertexBuffer, compositionCommandBuffer);
+        sphereMesh.VertexBuffer.Bind(compositionCommandBuffer);
         sphereMesh.IndexBuffer.Bind(compositionCommandBuffer);
         foreach (var light in Lights)
         {
@@ -419,7 +419,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                             ShaderStageFlags.FragmentBit, 0,
                             4, &horizontal);
 
-        Bind(screenQuadMesh.VertexBuffer, bloom1CommandBuffer);
+        screenQuadMesh.VertexBuffer.Bind(bloom1CommandBuffer);
         screenQuadMesh.IndexBuffer.Bind(bloom1CommandBuffer);
         vk.CmdDrawIndexed(bloom1CommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
@@ -439,7 +439,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                             ShaderStageFlags.FragmentBit, 0,
                             4, &horizontal);
 
-        Bind(screenQuadMesh.VertexBuffer, bloom2CommandBuffer);
+        screenQuadMesh.VertexBuffer.Bind(bloom2CommandBuffer);
         screenQuadMesh.IndexBuffer.Bind(bloom2CommandBuffer);
         vk.CmdDrawIndexed(bloom2CommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
@@ -457,7 +457,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.CmdBindDescriptorSets(postProcessCommandBuffer, PipelineBindPoint.Graphics,
                 postProcessPipeline.Layout, 0, 2, postProcessDescriptorSets, 0, default);
 
-        Bind(screenQuadMesh.VertexBuffer, postProcessCommandBuffer);
+        screenQuadMesh.VertexBuffer.Bind(postProcessCommandBuffer);
         screenQuadMesh.IndexBuffer.Bind(postProcessCommandBuffer);
         vk.CmdDrawIndexed(postProcessCommandBuffer, screenQuadMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
@@ -602,7 +602,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             vk.CmdBindDescriptorSets(cubemapCommandBuffer, PipelineBindPoint.Graphics,
                     equirectangularToCubemapPipeline.Layout, 0, 2, descriptorSets, 0, default);
 
-            Bind(cubeMesh.VertexBuffer, cubemapCommandBuffer);
+            cubeMesh.VertexBuffer.Bind(cubemapCommandBuffer);
             cubeMesh.IndexBuffer.Bind(cubemapCommandBuffer);
             vk.CmdDrawIndexed(cubemapCommandBuffer, cubeMesh.IndexBuffer.IndexCount, 1, 0, 0, 0);
 
@@ -673,7 +673,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             irradianceMapRenderStage.BeginRenderPass(0, i);
 
             vk.CmdBindPipeline(irradianceCommandBuffer, PipelineBindPoint.Graphics, irradianceMapPipeline.Pipeline);
-            Bind(cubeMesh.VertexBuffer, irradianceCommandBuffer);
+            cubeMesh.VertexBuffer.Bind(irradianceCommandBuffer);
             cubeMesh.IndexBuffer.Bind(irradianceCommandBuffer);
 
             var sceneInfoDescriptorSet = sceneInfoDescriptorSets[i];

@@ -50,7 +50,7 @@ unsafe public partial class VulkanRenderer
         assimp.ReleaseImport(scene);
 
         // create vertex and index buffers
-        var vertexBuffer = CreateVertexBuffer(vertices.ToArray());
+        var vertexBuffer = new VertexBuffer(SCDevice, vertices.ToArray());
         var indexBuffer = new IndexBuffer(SCDevice, Array.ConvertAll(indices.ToArray(), val => (ushort)val));
 
         // create texture
@@ -126,7 +126,7 @@ unsafe public partial class VulkanRenderer
         assimp.ReleaseImport(scene);
 
         // create vertex and index buffers
-        var vertexBuffer = CreateVertexBuffer(vertices.ToArray());
+        var vertexBuffer = new VertexBuffer(SCDevice, vertices.ToArray());
         var indexBuffer = new IndexBuffer(SCDevice, Array.ConvertAll(indices.ToArray(), val => (ushort)val));
 
         return new Mesh()
@@ -191,7 +191,7 @@ unsafe public partial class VulkanRenderer
 
     public void DestroyMesh(Mesh mesh)
     {
-        DestroyBuffer(mesh.VertexBuffer);
+        mesh.VertexBuffer.Dispose();
         mesh.IndexBuffer.Dispose();
     }
 }

@@ -59,7 +59,7 @@ public static class PrimitiveMesh
 
         ushort[] indices = new ushort[] { 0, 2, 3, 0, 3, 1 };
 
-        var vertexBuffer = renderer.CreateVertexBuffer(vertices);
+        var vertexBuffer = new VertexBuffer(renderer.SCDevice, vertices);
         var indexBuffer = new IndexBuffer(renderer.SCDevice, indices);
 
         return new Mesh(vertexBuffer, indexBuffer);
@@ -118,7 +118,7 @@ public static class PrimitiveMesh
             indices[i] = i;
         }
 
-        var vertexBuffer = renderer.CreateVertexBuffer(vertices);
+        var vertexBuffer = new VertexBuffer(renderer.SCDevice, vertices);
         var indexBuffer = new IndexBuffer(renderer.SCDevice, indices);
 
         return new Mesh(vertexBuffer, indexBuffer);

@@ -66,64 +66,69 @@ public struct Vertex
     }
 }
 
-public readonly struct VertexBuffer
+unsafe public class VertexBuffer : IDisposable
 {
-    public Buffer Buffer { get; init; }
-    public DeviceMemory BufferMemory { get; init; }
-    public uint VertexCount { get; init; }
+    public Buffer Buffer { get; }
+    public DeviceMemory BufferMemory { get; }
+    public uint VertexCount { get; }
 
-    public VertexBuffer(Buffer buffer, DeviceMemory bufferMemory, uint vertexCount)
-    {
-        Buffer = buffer;
-        BufferMemory = bufferMemory;
-        VertexCount = vertexCount;
-    }
-}
+    private Vk vk = VulkanHelper.Vk;
+    private SCDevice scDevice;
+    private bool disposedValue;
 
-unsafe public partial class VulkanRenderer
-{
-    public VertexBuffer CreateVertexBuffer(Vertex[] vertices)
+    public VertexBuffer(SCDevice scDevice, Vertex[] vertices)
     {
+        this.scDevice = scDevice;
+        VertexCount = (uint) vertices.Length;
+
         ulong bufferSize = (ulong) (Unsafe.SizeOf<Vertex>() * vertices.Length);
         
         Buffer stagingBuffer;
         DeviceMemory stagingBufferMemory;
-        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(SCDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
+        (stagingBuffer, stagingBufferMemory) = VulkanHelper.CreateBuffer(scDevice, bufferSize, BufferUsageFlags.TransferSrcBit, 
                      MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
 
         void* data;
-        vk.MapMemory(SCDevice.LogicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data);
+        vk.MapMemory(scDevice.LogicalDevice, stagingBufferMemory, 0, bufferSize, 0, &data);
         vertices.AsSpan().CopyTo(new Span<Vertex>(data, vertices.Length));
-        vk.UnmapMemory(SCDevice.LogicalDevice, stagingBufferMemory);
+        vk.UnmapMemory(scDevice.LogicalDevice, stagingBufferMemory);
 
-        Buffer vertexBuffer;
-        DeviceMemory vertexBufferMemory;
-        (vertexBuffer, vertexBufferMemory) = VulkanHelper.CreateBuffer(SCDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
+        (Buffer, BufferMemory) = VulkanHelper.CreateBuffer(scDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
                      MemoryPropertyFlags.DeviceLocalBit);
 
-        SCDevice.CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+        scDevice.CopyBuffer(stagingBuffer, Buffer, bufferSize);
 
-        vk.DestroyBuffer(SCDevice.LogicalDevice, stagingBuffer, null);
-        vk.FreeMemory(SCDevice.LogicalDevice, stagingBufferMemory, null);
-
-        return new VertexBuffer(vertexBuffer, vertexBufferMemory, (uint) vertices.Length);
+        vk.DestroyBuffer(scDevice.LogicalDevice, stagingBuffer, null);
+        vk.FreeMemory(scDevice.LogicalDevice, stagingBufferMemory, null);
     }
 
-    public void Bind(VertexBuffer vertexBuffer, CommandBuffer commandBuffer)
+    public void Bind(CommandBuffer commandBuffer)
     {
-        Buffer[] vertexBuffers = new[]{ vertexBuffer.Buffer };
-        ulong[] offsets = new ulong[]{ 0 };
-
-        fixed (Buffer* vertexBufferPtr = vertexBuffers)
-        fixed (ulong* offsetsPtr = offsets)
+        Buffer* pBuffers = stackalloc[] { Buffer };
+        ulong* pOffsets = stackalloc[] { 0ul };
+        vk.CmdBindVertexBuffers(commandBuffer, 0, 1, pBuffers, pOffsets);
+    }
+    
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
         {
-            vk.CmdBindVertexBuffers(commandBuffer, 0, 1, vertexBufferPtr, offsetsPtr);
+            // free unmanaged resources (unmanaged objects) and override finalizer
+            vk.DestroyBuffer(scDevice.LogicalDevice, Buffer, null);
+            vk.FreeMemory(scDevice.LogicalDevice, BufferMemory, null);
+
+            disposedValue = true;
         }
     }
 
-    public void DestroyBuffer(VertexBuffer vertexBuffer)
+    ~VertexBuffer()
     {
-        vk.DestroyBuffer(SCDevice.LogicalDevice, vertexBuffer.Buffer, null);
-        vk.FreeMemory(SCDevice.LogicalDevice, vertexBuffer.BufferMemory, null);
+        Dispose(disposing: false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }
