@@ -39,7 +39,7 @@ unsafe public partial class VulkanRenderer
         (indexBuffer, indexBufferMemory) = VulkanHelper.CreateBuffer(SCDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.IndexBufferBit,
                      MemoryPropertyFlags.DeviceLocalBit);
 
-        CopyBuffer(stagingBuffer, indexBuffer, bufferSize);
+        SCDevice.CopyBuffer(stagingBuffer, indexBuffer, bufferSize);
 
         vk.DestroyBuffer(SCDevice.LogicalDevice, stagingBuffer, null);
         vk.FreeMemory(SCDevice.LogicalDevice, stagingBufferMemory, null);

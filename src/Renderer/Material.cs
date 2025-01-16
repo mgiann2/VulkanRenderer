@@ -17,9 +17,9 @@ unsafe public class Material : IDisposable
     {
         this.renderer = renderer;
 
-        Albedo = new Texture(renderer, albedoPath);
-        Normal = new Texture(renderer, normalPath, isNormal: true);
-        AORoughnessMetalness = new Texture(renderer, aoRoughnessMetalnessPath);
+        Albedo = new Texture(renderer.SCDevice, albedoPath);
+        Normal = new Texture(renderer.SCDevice, normalPath, isNormal: true);
+        AORoughnessMetalness = new Texture(renderer.SCDevice, aoRoughnessMetalnessPath);
 
         DescriptorSets = renderer.CreateMaterialInfoDescriptorSets(Albedo.TextureImageView,
                                                           Normal.TextureImageView,

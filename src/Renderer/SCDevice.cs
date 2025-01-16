@@ -7,6 +7,7 @@ using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
+using Buffer = Silk.NET.Vulkan.Buffer;
 
 namespace Renderer;
 
@@ -45,6 +46,7 @@ unsafe public class SCDevice : IDisposable
     public SwapchainInfo SwapchainInfo { get; private set; }
     public Queue GraphicsQueue { get; }
     public Queue PresentQueue { get; }
+    public CommandPool CommandPool { get; }
 
     public QueueFamilyIndices QueueFamilyIndices => FindQueueFamilies(PhysicalDevice);
 
@@ -83,6 +85,8 @@ unsafe public class SCDevice : IDisposable
         GraphicsQueue = graphicsQueue;
         PresentQueue = presentQueue;
 
+        CommandPool = VulkanHelper.CreateCommandPool(this);
+
         SwapchainInfo = CreateSwapchain(window);
     }
 
@@ -97,6 +101,181 @@ unsafe public class SCDevice : IDisposable
 
         SwapchainInfo = CreateSwapchain(window);
     }
+
+    public void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout, uint layers = 1)
+    {
+        var commandBuffer = BeginSingleTimeCommand();
+
+        ImageMemoryBarrier barrier = new()
+        {
+            SType = StructureType.ImageMemoryBarrier,
+            OldLayout = oldLayout,
+            NewLayout = newLayout,
+            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+            Image = image,
+            SubresourceRange = new()
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                BaseMipLevel = 0,
+                LevelCount = 1,
+                BaseArrayLayer = 0,
+                LayerCount = layers
+            },
+        };
+
+        PipelineStageFlags sourceStage;
+        PipelineStageFlags destinationStage;
+
+        if (oldLayout == ImageLayout.Undefined && newLayout == ImageLayout.TransferDstOptimal)
+        {
+            barrier.SrcAccessMask = 0;
+            barrier.DstAccessMask = AccessFlags.TransferWriteBit;
+
+            sourceStage = PipelineStageFlags.TopOfPipeBit;
+            destinationStage = PipelineStageFlags.TransferBit;
+        }
+        else if (oldLayout == ImageLayout.TransferDstOptimal && newLayout == ImageLayout.ShaderReadOnlyOptimal)
+        {
+            barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
+            barrier.DstAccessMask = AccessFlags.ShaderReadBit;
+
+            sourceStage = PipelineStageFlags.TransferBit;
+            destinationStage = PipelineStageFlags.FragmentShaderBit;
+        }
+        else
+        {
+            throw new Exception("Unsupported layout transition!");
+        }
+
+        vk.CmdPipelineBarrier(commandBuffer, sourceStage, destinationStage,
+                              0, 0, default, 0, default, 1, in barrier);
+
+        EndSingleTimeCommand(commandBuffer);
+    }
+
+    public void CopyBufferToImage(Buffer buffer, Image image, uint width, uint height, uint layers)
+    {
+        var commandBuffer = BeginSingleTimeCommand();
+
+        BufferImageCopy region = new()
+        {
+            BufferOffset = 0,
+            BufferRowLength = 0,
+            BufferImageHeight = 0,
+            ImageSubresource = new()
+            {
+                AspectMask = ImageAspectFlags.ColorBit,
+                MipLevel = 0,
+                BaseArrayLayer = 0,
+                LayerCount = layers
+            },
+            ImageOffset = new() { X = 0, Y = 0, Z = 0 },
+            ImageExtent = new() { Width = width, Height = height, Depth = 1 }
+        };
+
+        vk.CmdCopyBufferToImage(commandBuffer, buffer, image, ImageLayout.TransferDstOptimal, 1, in region);
+
+        EndSingleTimeCommand(commandBuffer);
+    }
+
+    public Cubemap ImagesToCubeMap(Image[] srcImages, Extent2D imageExtent)
+    {
+        Image dstImage;
+        DeviceMemory dstImageMemory;
+        (dstImage, dstImageMemory) = VulkanHelper.CreateCubemapImage(this,
+                                                               imageExtent.Width, imageExtent.Width,
+                                                               Format.R16G16B16A16Sfloat, ImageTiling.Optimal,
+                                                               ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+                                                               MemoryPropertyFlags.DeviceLocalBit);
+
+        TransitionImageLayout(dstImage, Format.R16G16B16A16Sfloat, ImageLayout.Undefined, ImageLayout.TransferDstOptimal, 6);
+
+        var commandBuffer = BeginSingleTimeCommand();
+        for (uint layer = 0; layer < 6; layer++)
+        {
+            ImageCopy copyRegion = new()
+            {
+                SrcOffset = new() { X = 0, Y = 0, Z = 0 },
+                SrcSubresource = new()
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                    BaseArrayLayer = 0
+                },
+                DstOffset = new() { X = 0, Y = 0, Z = 0 },
+                DstSubresource = new()
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    LayerCount = 1,
+                    BaseArrayLayer = layer
+                },
+                Extent = new() { Width = imageExtent.Width, Height = imageExtent.Height, Depth = 1 }
+            };
+            vk.CmdCopyImage(commandBuffer,
+                            srcImages[layer], ImageLayout.TransferSrcOptimal,
+                            dstImage, ImageLayout.TransferDstOptimal,
+                            1, &copyRegion);
+        }
+        EndSingleTimeCommand(commandBuffer);
+
+        TransitionImageLayout(dstImage, Format.R16G16B16A16Sfloat, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, 6);
+
+        return new Cubemap(this, dstImage, dstImageMemory);
+    }
+
+    public void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
+    {
+        var commandBuffer = BeginSingleTimeCommand();
+
+        BufferCopy copyRegion = new() { Size = size };
+        vk.CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, in copyRegion);
+
+        EndSingleTimeCommand(commandBuffer);
+    }
+
+    private CommandBuffer BeginSingleTimeCommand()
+    {
+        CommandBufferAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.CommandBufferAllocateInfo,
+            Level = CommandBufferLevel.Primary,
+            CommandPool = CommandPool,
+            CommandBufferCount = 1
+        };
+
+        CommandBuffer commandBuffer;
+        vk.AllocateCommandBuffers(LogicalDevice, in allocInfo, out commandBuffer);
+
+        CommandBufferBeginInfo beginInfo = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+            Flags = CommandBufferUsageFlags.OneTimeSubmitBit
+        };
+
+        vk.BeginCommandBuffer(commandBuffer, in beginInfo);
+        return commandBuffer;
+    }
+
+    private void EndSingleTimeCommand(CommandBuffer commandBuffer)
+    {
+        vk.EndCommandBuffer(commandBuffer);
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+            CommandBufferCount = 1,
+            PCommandBuffers = &commandBuffer
+        };
+
+        vk.QueueSubmit(GraphicsQueue, 1, in submitInfo, default);
+        vk.QueueWaitIdle(GraphicsQueue);
+
+        vk.FreeCommandBuffers(LogicalDevice, CommandPool, 1, in commandBuffer);
+    }
+
+    // Object creation helper functions
+    // --------------------------------
 
     private Instance CreateInstance(IVkSurface windowSurface)
     {

@@ -151,8 +151,6 @@ unsafe public partial class VulkanRenderer : IDisposable
     GraphicsPipeline irradianceMapPipeline;
     GraphicsPipeline depthPipeline;
 
-    CommandPool commandPool;
-
     Sampler textureSampler;
 
     Semaphore[] imageAvailableSemaphores;
@@ -175,8 +173,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         EnableValidationLayers = enableValidationLayers;
         
         SCDevice = new(window, EnableValidationLayers);
-
-        commandPool = VulkanHelper.CreateCommandPool(SCDevice);
 
         (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
         (dirShadowBuffers, dirShadowBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<ShadowInfo>(), MaxFramesInFlight);
@@ -553,93 +549,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
     }
 
-    public void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout, uint layers = 1)
-    {
-        var commandBuffer = BeginSingleTimeCommand();
-
-        ImageMemoryBarrier barrier = new()
-        {
-            SType = StructureType.ImageMemoryBarrier,
-            OldLayout = oldLayout,
-            NewLayout = newLayout,
-            SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-            Image = image,
-            SubresourceRange = new()
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                BaseMipLevel = 0,
-                LevelCount = 1,
-                BaseArrayLayer = 0,
-                LayerCount = layers
-            },
-        };
-
-        PipelineStageFlags sourceStage;
-        PipelineStageFlags destinationStage;
-
-        if (oldLayout == ImageLayout.Undefined && newLayout == ImageLayout.TransferDstOptimal)
-        {
-            barrier.SrcAccessMask = 0;
-            barrier.DstAccessMask = AccessFlags.TransferWriteBit;
-
-            sourceStage = PipelineStageFlags.TopOfPipeBit;
-            destinationStage = PipelineStageFlags.TransferBit;
-        }
-        else if (oldLayout == ImageLayout.TransferDstOptimal && newLayout == ImageLayout.ShaderReadOnlyOptimal)
-        {
-            barrier.SrcAccessMask = AccessFlags.TransferWriteBit;
-            barrier.DstAccessMask = AccessFlags.ShaderReadBit;
-
-            sourceStage = PipelineStageFlags.TransferBit;
-            destinationStage = PipelineStageFlags.FragmentShaderBit;
-        }
-        else
-        {
-            throw new Exception("Unsupported layout transition!");
-        }
-
-        vk.CmdPipelineBarrier(commandBuffer, sourceStage, destinationStage,
-                              0, 0, default, 0, default, 1, in barrier);
-
-        EndSingleTimeCommand(commandBuffer);
-    }
-
-    public void CopyBufferToImage(Buffer buffer, Image image, uint width, uint height, uint layers)
-    {
-        var commandBuffer = BeginSingleTimeCommand();
-
-        BufferImageCopy region = new()
-        {
-            BufferOffset = 0,
-            BufferRowLength = 0,
-            BufferImageHeight = 0,
-            ImageSubresource = new()
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                MipLevel = 0,
-                BaseArrayLayer = 0,
-                LayerCount = layers
-            },
-            ImageOffset = new() { X = 0, Y = 0, Z = 0 },
-            ImageExtent = new() { Width = width, Height = height, Depth = 1 }
-        };
-
-        vk.CmdCopyBufferToImage(commandBuffer, buffer, image, ImageLayout.TransferDstOptimal, 1, in region);
-
-        EndSingleTimeCommand(commandBuffer);
-    }
-
-    void CopyBuffer(Buffer srcBuffer, Buffer dstBuffer, ulong size)
-    {
-        var commandBuffer = BeginSingleTimeCommand();
-
-        BufferCopy copyRegion = new() { Size = size };
-        vk.CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, in copyRegion);
-
-        EndSingleTimeCommand(commandBuffer);
-    }
-
     void OnFramebufferResize(Vector2D<int> framebufferSize)
     {
         framebufferResized = true;
@@ -674,7 +583,7 @@ unsafe public partial class VulkanRenderer : IDisposable
             vk.UnmapMemory(SCDevice.LogicalDevice, uniformBuffersMemory[i]);
         }
         DescriptorSet[] sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(uniformBuffers);
-        var skyboxTexture = new Texture(this, SkyboxTexturePath);
+        var skyboxTexture = new Texture(SCDevice, SkyboxTexturePath);
         DescriptorSet equirectangularMapDescriptorSet = CreateSingleTextureDescriptorSets(skyboxTexture.TextureImageView, 1)[0];
 
         // Begin equirectangular to cubemap render pass
@@ -705,7 +614,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.QueueWaitIdle(SCDevice.GraphicsQueue);
 
         Image[] environmentMapImages = environmentMapAttachments.Select((attachment) => attachment.Color.Image).ToArray();
-        var environmentCubemap = ImagesToCubeMap(environmentMapImages, new Extent2D() { Width = 512, Height = 512 });
+        var environmentCubemap = SCDevice.ImagesToCubeMap(environmentMapImages, new Extent2D() { Width = 512, Height = 512 });
 
         // free resources
         vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, 1, &equirectangularMapDescriptorSet);
@@ -782,7 +691,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.QueueWaitIdle(SCDevice.GraphicsQueue);
 
         Image[] irradianceMapImages = irradianceMapAttachments.Select((attachment) => attachment.Color.Image).ToArray();
-        var irradianceMap = ImagesToCubeMap(irradianceMapImages, new Extent2D() { Width = 32, Height = 32 });
+        var irradianceMap = SCDevice.ImagesToCubeMap(irradianceMapImages, new Extent2D() { Width = 32, Height = 32 });
 
         // free resources
         vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, 1, &environmentMapDescriptorSet);
@@ -799,51 +708,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         return irradianceMap;
     }
 
-    Cubemap ImagesToCubeMap(Image[] srcImages, Extent2D imageExtent)
-    {
-        Image dstImage;
-        DeviceMemory dstImageMemory;
-        (dstImage, dstImageMemory) = VulkanHelper.CreateCubemapImage(SCDevice,
-                                                               imageExtent.Width, imageExtent.Width,
-                                                               Format.R16G16B16A16Sfloat, ImageTiling.Optimal,
-                                                               ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
-                                                               MemoryPropertyFlags.DeviceLocalBit);
-
-        TransitionImageLayout(dstImage, Format.R16G16B16A16Sfloat, ImageLayout.Undefined, ImageLayout.TransferDstOptimal, 6);
-
-        var commandBuffer = BeginSingleTimeCommand();
-        for (uint layer = 0; layer < 6; layer++)
-        {
-            ImageCopy copyRegion = new()
-            {
-                SrcOffset = new() { X = 0, Y = 0, Z = 0 },
-                SrcSubresource = new()
-                {
-                    AspectMask = ImageAspectFlags.ColorBit,
-                    LayerCount = 1,
-                    BaseArrayLayer = 0
-                },
-                DstOffset = new() { X = 0, Y = 0, Z = 0 },
-                DstSubresource = new()
-                {
-                    AspectMask = ImageAspectFlags.ColorBit,
-                    LayerCount = 1,
-                    BaseArrayLayer = layer
-                },
-                Extent = new() { Width = imageExtent.Width, Height = imageExtent.Height, Depth = 1 }
-            };
-            vk.CmdCopyImage(commandBuffer,
-                            srcImages[layer], ImageLayout.TransferSrcOptimal,
-                            dstImage, ImageLayout.TransferDstOptimal,
-                            1, &copyRegion);
-        }
-        EndSingleTimeCommand(commandBuffer);
-
-        TransitionImageLayout(dstImage, Format.R16G16B16A16Sfloat, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal, 6);
-
-        return new Cubemap(this, dstImage, dstImageMemory);
-    }
-    
     void CleanupSwapchainObjects()
     {
         vk.DestroyPipeline(SCDevice.LogicalDevice, postProcessPipeline.Pipeline, null);
@@ -916,7 +780,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.ByRegionBit);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ gBufferAttachments }, commandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ gBufferAttachments }, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -950,7 +814,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ compositionAttachments }, commandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ compositionAttachments }, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -980,7 +844,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ bloomAttachments }, commandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ bloomAttachments }, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
@@ -1013,7 +877,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, commandPool, SCDevice.SwapchainInfo.Extent, (uint) swapchainImageCount, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, (uint) swapchainImageCount, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -1047,7 +911,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, commandPool, new Extent2D(512, 512), 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, SCDevice.CommandPool, new Extent2D(512, 512), 6, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -1082,7 +946,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, commandPool, new Extent2D(32, 32), 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, SCDevice.CommandPool, new Extent2D(32, 32), 6, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -1112,7 +976,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, commandPool, shadowMapExtent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, SCDevice.CommandPool, shadowMapExtent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
@@ -1164,7 +1028,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         {
             SType = StructureType.CommandBufferAllocateInfo,
             Level = CommandBufferLevel.Primary,
-            CommandPool = commandPool,
+            CommandPool = SCDevice.CommandPool,
             CommandBufferCount = 1
         };
 
@@ -1195,7 +1059,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.QueueSubmit(SCDevice.GraphicsQueue, 1, in submitInfo, default);
         vk.QueueWaitIdle(SCDevice.GraphicsQueue);
 
-        vk.FreeCommandBuffers(SCDevice.LogicalDevice, commandPool, 1, in commandBuffer);
+        vk.FreeCommandBuffers(SCDevice.LogicalDevice, SCDevice.CommandPool, 1, in commandBuffer);
     }
 
     // IDisposable Methods
@@ -1229,7 +1093,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
             vk.DestroySampler(SCDevice.LogicalDevice, textureSampler, null);
 
-            vk.DestroyCommandPool(SCDevice.LogicalDevice, commandPool, null);
+            vk.DestroyCommandPool(SCDevice.LogicalDevice, SCDevice.CommandPool, null);
 
             CleanupSwapchainObjects();
 

@@ -101,7 +101,7 @@ unsafe public partial class VulkanRenderer
         (vertexBuffer, vertexBufferMemory) = VulkanHelper.CreateBuffer(SCDevice, bufferSize, BufferUsageFlags.TransferDstBit | BufferUsageFlags.VertexBufferBit,
                      MemoryPropertyFlags.DeviceLocalBit);
 
-        CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+        SCDevice.CopyBuffer(stagingBuffer, vertexBuffer, bufferSize);
 
         vk.DestroyBuffer(SCDevice.LogicalDevice, stagingBuffer, null);
         vk.FreeMemory(SCDevice.LogicalDevice, stagingBufferMemory, null);
