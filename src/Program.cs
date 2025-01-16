@@ -71,10 +71,11 @@ class Program
         // load scene objects
         camera = new Camera(new Vector3D<float>(2.0f, 1.0f, -4.0f), Vector3D<float>.Zero, Vector3D<float>.One, 45.0f);
 
-        computerModel = renderer!.LoadModel(ComputerModelPath + "scene.gltf",
-                                    ComputerModelPath + ComputerTexturePath + "baseColor.png",
-                                    ComputerModelPath + ComputerTexturePath + "normal.png",
-                                    ComputerModelPath + ComputerTexturePath + "metallicRoughness.png");
+        computerModel = new Model(renderer,
+                ComputerModelPath + "scene.gltf",
+                ComputerModelPath + ComputerTexturePath + "baseColor.png",
+                ComputerModelPath + ComputerTexturePath + "normal.png",
+                ComputerModelPath + ComputerTexturePath + "metallicRoughness.png");
         computerTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(90.0f, 180.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
 
         var paintedMetalMaterial = new Material(renderer, MaterialsPath + "PaintedMetal/BaseColor.png",
@@ -144,7 +145,10 @@ class Program
     static void OnClose()
     {
         renderer!.DeviceWaitIdle();
-        renderer!.DestroyModel(computerModel);
+        computerModel.Mesh.Dispose();
+        cubeModel.Mesh.Dispose();
+        quadModel.Mesh.Dispose();
+        computerModel.Material.Dispose();
     }
 
     static void OnKeyDown(IKeyboard keyboard, Key key, int keyCode)
