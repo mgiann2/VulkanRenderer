@@ -90,6 +90,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     Mesh screenQuadMesh;
     Mesh cubeMesh;
     Mesh sphereMesh;
+    SceneInfo sceneInfo;
 
     readonly Vk vk = VulkanHelper.Vk;
     IWindow window;
@@ -115,8 +116,6 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     Buffer[] sceneInfoBuffers;
     DeviceMemory[] sceneInfoBuffersMemory;
-    Buffer[] dirShadowBuffers;
-    DeviceMemory[] dirShadowBuffersMemory;
 
     DescriptorSetLayout sceneInfoDescriptorSetLayout;
     DescriptorSetLayout materialInfoDescriptorSetLayout;
@@ -129,7 +128,6 @@ unsafe public partial class VulkanRenderer : IDisposable
     DescriptorPool singleTextureDescriptorPool;
 
     DescriptorSet[] sceneInfoDescriptorSets;
-    DescriptorSet[] dirShadowInfoDescriptorSets;
     DescriptorSet[] screenTextureInfoDescriptorSets;
     DescriptorSet[] compositionOutputTextureDescriptorSets;
     DescriptorSet[] thresholdTextureDescriptorSets;
@@ -175,7 +173,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         SCDevice = new(window, EnableValidationLayers);
 
         (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
-        (dirShadowBuffers, dirShadowBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<ShadowInfo>(), MaxFramesInFlight);
         textureSampler = VulkanHelper.CreateTextureSampler(SCDevice);
 
         // Create descriptor pools
@@ -202,7 +199,6 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         // Create descriptor sets
         sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(sceneInfoBuffers);
-        dirShadowInfoDescriptorSets = CreateShadowInfoDescriptorSets(dirShadowBuffers);
         screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments.Albedo.ImageView,
                                                                                 gBufferAttachments.Normal.ImageView,
                                                                                 gBufferAttachments.AoRoughnessMetalness.ImageView,
@@ -313,18 +309,15 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         // draw depth map of directional light
         vk.CmdBindPipeline(depthMapCommandBuffer, PipelineBindPoint.Graphics, depthPipeline.Pipeline);
-        vk.CmdBindDescriptorSets(depthMapCommandBuffer, PipelineBindPoint.Graphics,
-                depthPipeline.Layout, 0, 1, in dirShadowInfoDescriptorSets[currentFrame], 0, default);
 
         foreach (var drawCall  in solidModelDrawCalls)
         {
             var model = drawCall.Model;
-            var modelMatrix = drawCall.ModelMatrix;
+            var data = stackalloc[] { drawCall.ModelMatrix, sceneInfo.LightSpaceMatrix };
 
             model.Mesh.Bind(depthMapCommandBuffer);
-
             vk.CmdPushConstants(depthMapCommandBuffer, depthPipeline.Layout,
-                            ShaderStageFlags.VertexBit, 0, (uint) Unsafe.SizeOf<Matrix4X4<float>>(), &modelMatrix);
+                            ShaderStageFlags.VertexBit, 0, (uint) Unsafe.SizeOf<Matrix4X4<float>>() * 2, data);
             model.Mesh.Draw(depthMapCommandBuffer);
         }
 
@@ -521,23 +514,14 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     public void UpdateSceneInfo(SceneInfo sceneInfo)
     {
+        this.sceneInfo = sceneInfo;
+
         // update scene info buffer
         {
             void* data;
             vk.MapMemory(SCDevice.LogicalDevice, sceneInfoBuffersMemory[currentFrame], 0, (ulong) Unsafe.SizeOf<SceneInfo>(), 0, &data);
             new Span<SceneInfo>(data, 1)[0] = sceneInfo;
             vk.UnmapMemory(SCDevice.LogicalDevice, sceneInfoBuffersMemory[currentFrame]);
-        }
-
-        // update directional light shadow buffer
-        {
-            ShadowInfo shadowInfo;
-            shadowInfo.LightSpaceMatrix = sceneInfo.LightSpaceMatrix;
-
-            void* data;
-            vk.MapMemory(SCDevice.LogicalDevice, dirShadowBuffersMemory[currentFrame], 0, (ulong) Unsafe.SizeOf<ShadowInfo>(), 0, &data);
-            new Span<ShadowInfo>(data, 1)[0] = shadowInfo;
-            vk.UnmapMemory(SCDevice.LogicalDevice, dirShadowBuffersMemory[currentFrame]);
         }
     }
 

@@ -217,8 +217,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(0)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
-                       .AddPushConstantRange((uint) Unsafe.SizeOf<Matrix4X4<float>>(), 0, ShaderStageFlags.VertexBit);
+                       .AddPushConstantRange((uint) Unsafe.SizeOf<Matrix4X4<float>>() * 2, 0, ShaderStageFlags.VertexBit);
 
         return pipelineBuilder.Build(renderPass, 0);
     }
