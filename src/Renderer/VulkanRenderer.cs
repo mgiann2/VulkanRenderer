@@ -68,11 +68,15 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     readonly bool EnableValidationLayers;
     const int MaxFramesInFlight = 2;
-    const int MaxLights = 512;
+    const int MaxLights = 128;
     const int CubemapMapSceneInfoDescriptors = 6;
     const uint MaxGBufferDescriptorSets = 20;
-    const uint ShadowMapWidth = 2048;
-    const uint ShadowMapHeight = 2048;
+
+    // Very Low Resolution: 256x256 => 0.25Mb per face => 1.5Mb per cubemap => 192Mb for 128 lights
+    // Low Resolution: 512x512 => 1Mb per face => 6Mb per cubemap => 0.75Gb for 128 lights
+    // Medium Resolution: 1024x1024 => 4Mb per face => 24Mb per cubemap => 3Gb for 128 lights
+    // High Resolution : 2048x2048 => 16Mb per face => 96Mb per cubemap => 12Gb for 128 lights
+    const uint ShadowMapResolution = 1024;
 
     const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
     const string SkyboxTexturePath = AssetsPath + "hdris/EveningSkyHDRI.jpg";
@@ -934,7 +938,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     (RenderStage, DepthOnlyAttachment) CreateDepthMapRenderStage()
     {
-        var shadowMapExtent = new Extent2D{ Width = ShadowMapWidth, Height = ShadowMapHeight };
+        var shadowMapExtent = new Extent2D{ Width = ShadowMapResolution, Height = ShadowMapResolution };
         DepthOnlyAttachment depthAttachments = new(SCDevice, shadowMapExtent);
         
         RenderPassBuilder renderPassBuilder = new(SCDevice);
