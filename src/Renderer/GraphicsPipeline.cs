@@ -871,7 +871,7 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateSingleTextureDescriptorSets(ImageView imageView, uint setCount)
+    DescriptorSet[] CreateSingleTextureDescriptorSets(ImageView imageView, Sampler sampler, uint setCount)
     {
         var descriptorSets = new DescriptorSet[setCount];
 
@@ -903,7 +903,7 @@ unsafe public partial class VulkanRenderer
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
                 ImageView = imageView,
-                Sampler = textureSampler
+                Sampler = sampler 
             };
 
             WriteDescriptorSet descriptorWrite = new WriteDescriptorSet
@@ -923,7 +923,7 @@ unsafe public partial class VulkanRenderer
         return descriptorSets;
     }
 
-    void UpdateSingleTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView imageView)
+    void UpdateSingleTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView imageView, Sampler sampler)
     {
         for (int i = 0; i < descriptorSets.Length; i++)
         {
@@ -931,7 +931,7 @@ unsafe public partial class VulkanRenderer
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
                 ImageView = imageView,
-                Sampler = textureSampler
+                Sampler = sampler
             };
 
             WriteDescriptorSet descriptorWrite = new WriteDescriptorSet

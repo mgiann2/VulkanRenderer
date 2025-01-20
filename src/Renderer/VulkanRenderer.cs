@@ -81,17 +81,6 @@ unsafe public partial class VulkanRenderer : IDisposable
     const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
     const string SkyboxTexturePath = AssetsPath + "hdris/EveningSkyHDRI.jpg";
 
-    readonly string[] validationLayers = new[]
-    {
-        "VK_LAYER_KHRONOS_validation"
-    };
-
-    readonly string[] deviceExtensions = new[]
-    {
-        KhrSwapchain.ExtensionName,
-        KhrDynamicRendering.ExtensionName
-    };
-
     Mesh screenQuadMesh;
     Mesh cubeMesh;
     Mesh sphereMesh;
@@ -155,6 +144,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     GraphicsPipeline depthPipeline;
 
     Sampler textureSampler;
+    Sampler shadowSampler;
 
     Semaphore[] imageAvailableSemaphores;
     Fence[] inFlightFences;
@@ -179,6 +169,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
         textureSampler = VulkanHelper.CreateTextureSampler(SCDevice);
+        shadowSampler = VulkanHelper.CreateShadowSampler(SCDevice);
 
         // Create descriptor pools
         sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool(MaxFramesInFlight + CubemapMapSceneInfoDescriptors);
@@ -208,11 +199,11 @@ unsafe public partial class VulkanRenderer : IDisposable
                                                                                 gBufferAttachments.Normal.ImageView,
                                                                                 gBufferAttachments.AoRoughnessMetalness.ImageView,
                                                                                 gBufferAttachments.Position.ImageView);
-        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView, MaxFramesInFlight);
-        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView, MaxFramesInFlight);
-        dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Depth.ImageView, MaxFramesInFlight);
-        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, MaxFramesInFlight);
-        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, MaxFramesInFlight);
+        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView, textureSampler, MaxFramesInFlight);
+        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView, textureSampler, MaxFramesInFlight);
+        dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Depth.ImageView, shadowSampler, MaxFramesInFlight);
+        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, textureSampler, MaxFramesInFlight);
+        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, textureSampler, MaxFramesInFlight);
 
         // Create pipelines
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
@@ -239,8 +230,8 @@ unsafe public partial class VulkanRenderer : IDisposable
         irradianceCubemap = CreateIrradianceCubemap(skyboxCubemap);
 
         // Create skybox descriptor sets
-        skyboxTextureDescriptorSet = CreateSingleTextureDescriptorSets(skyboxCubemap.CubemapImageView, 1)[0];
-        irradianceMapDescriptorSet = CreateSingleTextureDescriptorSets(irradianceCubemap.CubemapImageView, 1)[0];
+        skyboxTextureDescriptorSet = CreateSingleTextureDescriptorSets(skyboxCubemap.CubemapImageView, textureSampler, 1)[0];
+        irradianceMapDescriptorSet = CreateSingleTextureDescriptorSets(irradianceCubemap.CubemapImageView, textureSampler, 1)[0];
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -565,7 +556,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
         DescriptorSet[] sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(uniformBuffers);
         var skyboxTexture = new Texture(SCDevice, SkyboxTexturePath);
-        DescriptorSet equirectangularMapDescriptorSet = CreateSingleTextureDescriptorSets(skyboxTexture.TextureImageView, 1)[0];
+        DescriptorSet equirectangularMapDescriptorSet = CreateSingleTextureDescriptorSets(skyboxTexture.TextureImageView, textureSampler, 1)[0];
 
         // Begin equirectangular to cubemap render pass
         equirectangularToCubemapRenderStage.ResetCommandBuffer(0);
@@ -641,7 +632,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
         DescriptorSet[] sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(uniformBuffers);
 
-        var environmentMapDescriptorSet = CreateSingleTextureDescriptorSets(environmentCubemap.CubemapImageView, 1)[0];
+        var environmentMapDescriptorSet = CreateSingleTextureDescriptorSets(environmentCubemap.CubemapImageView, textureSampler, 1)[0];
 
         // Begin irradiance map render pass
         irradianceMapRenderStage.ResetCommandBuffer(0);
@@ -730,7 +721,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                                                            gBufferAttachments.Normal.ImageView,
                                                                            gBufferAttachments.AoRoughnessMetalness.ImageView,
                                                                            gBufferAttachments.Position.ImageView);
-        UpdateSingleTextureDescriptorSets(compositionOutputTextureDescriptorSets, compositionAttachments.Color.ImageView);
+        UpdateSingleTextureDescriptorSets(compositionOutputTextureDescriptorSets, compositionAttachments.Color.ImageView, textureSampler);
 
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
         compositionPipeline = CreateCompositionPipeline(compositionRenderStage.RenderPass);
