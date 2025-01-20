@@ -88,7 +88,8 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     readonly string[] deviceExtensions = new[]
     {
-        KhrSwapchain.ExtensionName
+        KhrSwapchain.ExtensionName,
+        KhrDynamicRendering.ExtensionName
     };
 
     Mesh screenQuadMesh;
@@ -180,7 +181,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         textureSampler = VulkanHelper.CreateTextureSampler(SCDevice);
 
         // Create descriptor pools
-        sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool(MaxFramesInFlight + MaxLights + CubemapMapSceneInfoDescriptors);
+        sceneInfoDescriptorPool = CreateSceneInfoDescriptorPool(MaxFramesInFlight + CubemapMapSceneInfoDescriptors);
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxGBufferDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
         singleTextureDescriptorPool = CreateSingleTextureDescriptorPool(20);
@@ -758,7 +759,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.ByRegionBit);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ gBufferAttachments }, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ gBufferAttachments }, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -792,7 +793,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ compositionAttachments }, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ compositionAttachments }, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -822,7 +823,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ bloomAttachments }, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ bloomAttachments }, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
@@ -855,7 +856,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, SCDevice.CommandPool, SCDevice.SwapchainInfo.Extent, (uint) swapchainImageCount, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, SCDevice.SwapchainInfo.Extent, (uint) swapchainImageCount, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -889,7 +890,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, SCDevice.CommandPool, new Extent2D(512, 512), 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, new Extent2D(512, 512), 6, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -924,7 +925,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, SCDevice.CommandPool, new Extent2D(32, 32), 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, new Extent2D(32, 32), 6, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -954,7 +955,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, SCDevice.CommandPool, shadowMapExtent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, shadowMapExtent, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {

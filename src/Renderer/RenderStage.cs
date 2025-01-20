@@ -11,7 +11,6 @@ unsafe public class RenderStage : IDisposable
     private IFramebufferAttachmentCollection[] framebufferAttachmentCollections;
 
     private Vk vk;
-    private CommandPool commandPool;
     private SCDevice scDevice;
     private Extent2D extent;
 
@@ -20,11 +19,10 @@ unsafe public class RenderStage : IDisposable
     public RenderPass RenderPass { get; }
     public List<ClearValue> ClearValues = new();
 
-    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, CommandPool commandPool, Extent2D extent, uint framebufferCount, uint commandBufferCount)
+    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, Extent2D extent, uint framebufferCount, uint commandBufferCount)
     {
         vk = VulkanHelper.Vk;
         this.scDevice = scDevice;
-        this.commandPool = commandPool;
         this.extent = extent;
 
         this.RenderPass = renderPass;
@@ -58,7 +56,7 @@ unsafe public class RenderStage : IDisposable
         CommandBufferAllocateInfo allocInfo = new()
         {
             SType = StructureType.CommandBufferAllocateInfo,
-            CommandPool = commandPool,
+            CommandPool = scDevice.CommandPool,
             Level = CommandBufferLevel.Primary,
             CommandBufferCount = commandBufferCount 
         };
@@ -234,7 +232,7 @@ unsafe public class RenderStage : IDisposable
             vk.DestroyRenderPass(scDevice.LogicalDevice, RenderPass, null);
 
             fixed (CommandBuffer* commandBuffersPtr = commandBuffers)
-                vk.FreeCommandBuffers(scDevice.LogicalDevice, commandPool, (uint) commandBuffers.Length, commandBuffersPtr);
+                vk.FreeCommandBuffers(scDevice.LogicalDevice, scDevice.CommandPool, (uint) commandBuffers.Length, commandBuffersPtr);
             
             foreach (var framebuffer in framebuffers)
             {
