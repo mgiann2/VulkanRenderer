@@ -180,35 +180,45 @@ unsafe public static class VulkanHelper
         return textureSampler;
     }
 
-    public static Semaphore CreateSemaphore(SCDevice scDevice)
+    public static Semaphore[] CreateSemaphores(SCDevice scDevice, uint nrSemaphores)
     {
+        var semaphores = new Semaphore[nrSemaphores];
+
         SemaphoreCreateInfo createInfo = new()
         {
             SType = StructureType.SemaphoreCreateInfo
         };
 
-        if (Vk.CreateSemaphore(scDevice.LogicalDevice, in createInfo, null, out var semaphore) != Result.Success)
+        for (uint i = 0; i < nrSemaphores; i++)
         {
-            throw new Exception("Failed to create semaphore!");
+            if (Vk.CreateSemaphore(scDevice.LogicalDevice, in createInfo, null, out semaphores[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create semaphore!");
+            }
         }
 
-        return semaphore;
+        return semaphores;
     }
 
-    public static Fence CreateFence(SCDevice scDevice, bool isSignaled)
+    public static Fence[] CreateFences(SCDevice scDevice, uint nrFences, bool isSignaled)
     {
+        var fences = new Fence[nrFences];
+
         FenceCreateInfo createInfo = new()
         {
             SType = StructureType.FenceCreateInfo,
             Flags = isSignaled ? FenceCreateFlags.SignaledBit : FenceCreateFlags.None
         };
 
-        if (Vk.CreateFence(scDevice.LogicalDevice, in createInfo, null, out var fence) != Result.Success)
+        for (uint i = 0; i < nrFences; i++)
         {
-            throw new Exception("Failed to create fence!");
+            if (Vk.CreateFence(scDevice.LogicalDevice, in createInfo, null, out fences[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create fence!");
+            }
         }
 
-        return fence;
+        return fences;
     }
 
     public static (Image, DeviceMemory) CreateImage(SCDevice scDevice, 
