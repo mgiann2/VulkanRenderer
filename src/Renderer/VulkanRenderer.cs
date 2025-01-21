@@ -147,6 +147,11 @@ unsafe public partial class VulkanRenderer : IDisposable
     Sampler shadowSampler;
 
     Semaphore[] imageAvailableSemaphores;
+    Semaphore[] geomSemaphores;
+    Semaphore[] compSemaphores;
+    Semaphore[] bloom1Semaphores;
+    Semaphore[] bloom2Semaphores;
+    Semaphore[] postProcessSemaphores;
     Fence[] inFlightFences;
 
     Cubemap skyboxCubemap;
@@ -162,7 +167,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     public VulkanRenderer(IWindow window, bool enableValidationLayers = false)
     {
         this.window = window;
-
+        
         EnableValidationLayers = enableValidationLayers;
         
         SCDevice = new(window, EnableValidationLayers);
@@ -218,7 +223,14 @@ unsafe public partial class VulkanRenderer : IDisposable
         irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
         depthPipeline = CreateDepthPipeline(depthMapRenderStage.RenderPass);
 
-        CreateSyncObjects(out imageAvailableSemaphores, out inFlightFences);
+        // Create sync objects
+        imageAvailableSemaphores = VulkanHelper.CreateSemaphores(SCDevice, MaxFramesInFlight);
+        geomSemaphores = VulkanHelper.CreateSemaphores(SCDevice, MaxFramesInFlight);
+        compSemaphores = VulkanHelper.CreateSemaphores(SCDevice, MaxFramesInFlight);
+        bloom1Semaphores = VulkanHelper.CreateSemaphores(SCDevice, MaxFramesInFlight);
+        bloom2Semaphores = VulkanHelper.CreateSemaphores(SCDevice, MaxFramesInFlight);
+        postProcessSemaphores = VulkanHelper.CreateSemaphores(SCDevice, MaxFramesInFlight);
+        inFlightFences = VulkanHelper.CreateFences(SCDevice, MaxFramesInFlight, true);
 
         // Load primitive meshes
         screenQuadMesh = PrimitiveMesh.CreateQuadMesh(this);
@@ -447,31 +459,44 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         // Submit commands
         // ---------------
+        List<SubmitInfo> submitInfos = new();
 
-        // submit geometry commands
-        var geomWaitSemaphores = new Semaphore[] { imageAvailableSemaphores[currentFrame] };
-        geometryRenderStage.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, geomWaitSemaphores);
-
-        // submit directional light depth map commands
-        var depthMapWaitSemaphores = new Semaphore[] { geometryRenderStage.GetSignalSemaphore(currentFrame) };
-        depthMapRenderStage.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, depthMapWaitSemaphores);
+        // submit geometry and directional light depth map commands
+        submitInfos.Add(CreateGraphicsSubmitInfo(new[] { geometryCommandBuffer, depthMapCommandBuffer },
+                                                 new[] { imageAvailableSemaphores[currentFrame] },
+                                                 new[] { geomSemaphores[currentFrame] }));
 
         // submit composition commands
-        var compWaitSemaphores = new Semaphore[] { depthMapRenderStage.GetSignalSemaphore(currentFrame) };
-        compositionRenderStage.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, compWaitSemaphores);
+        submitInfos.Add(CreateGraphicsSubmitInfo(new[] { compositionCommandBuffer },
+                                                 new[] { geomSemaphores[currentFrame] },
+                                                 new[] { compSemaphores[currentFrame] }));
 
         // submit bloom commands
-        var bloom1WaitSemaphores = new Semaphore[] { compositionRenderStage.GetSignalSemaphore(currentFrame) };
-        var bloom2WaitSemaphores = new Semaphore[] { bloomRenderStage1.GetSignalSemaphore(currentFrame) };
-        bloomRenderStage1.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, bloom1WaitSemaphores);
-        bloomRenderStage2.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, bloom2WaitSemaphores);
+        submitInfos.Add(CreateGraphicsSubmitInfo(new[] { bloom1CommandBuffer },
+                                                 new[] { compSemaphores[currentFrame] },
+                                                 new[] { bloom1Semaphores[currentFrame] }));
+        submitInfos.Add(CreateGraphicsSubmitInfo(new[] { bloom2CommandBuffer },
+                                                 new[] { bloom1Semaphores[currentFrame] },
+                                                 new[] { bloom2Semaphores[currentFrame] }));
 
         // submit post process commands
-        var postProcessWaitSemaphores = new Semaphore[] { bloomRenderStage2.GetSignalSemaphore(currentFrame) };
-        postProcessRenderStage.SubmitCommands(SCDevice.GraphicsQueue, currentFrame, postProcessWaitSemaphores, inFlightFences[currentFrame]);
+        submitInfos.Add(CreateGraphicsSubmitInfo(new[] { postProcessCommandBuffer },
+                                                 new[] { bloom2Semaphores[currentFrame] },
+                                                 new[] { postProcessSemaphores[currentFrame] }));
+
+        SubmitInfo[] submits = submitInfos.ToArray();
+        fixed (SubmitInfo* pSubmits = submits)
+        {
+            Result res = vk.QueueSubmit(SCDevice.GraphicsQueue, (uint) submits.Length,
+                                        pSubmits, inFlightFences[currentFrame]);
+            if (res != Result.Success)
+            {
+                throw new Exception("Unable to submit graphics queue");
+            }
+        }
 
         var swapchains = stackalloc[] { SCDevice.SwapchainInfo.Swapchain };
-        var postProcessSignalSemaphores = stackalloc[] { postProcessRenderStage.GetSignalSemaphore(currentFrame) };
+        var postProcessSignalSemaphores = stackalloc[] { postProcessSemaphores[currentFrame] };
 
         uint idx = imageIndex;
         PresentInfoKHR presentInfo = new()
@@ -581,7 +606,12 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
 
         equirectangularToCubemapRenderStage.EndCommands(0);
-        equirectangularToCubemapRenderStage.SubmitCommands(SCDevice.GraphicsQueue, 0, new Semaphore[] {});
+        var submitInfo = CreateGraphicsSubmitInfo(new[] { cubemapCommandBuffer },
+                                                  new Semaphore[]{}, new Semaphore[]{});
+        if (vk.QueueSubmit(SCDevice.GraphicsQueue, 1, &submitInfo, default) != Result.Success)
+        {
+            throw new Exception("Failed to submit graphics queue!");
+        }
         vk.QueueWaitIdle(SCDevice.GraphicsQueue);
 
         Image[] environmentMapImages = environmentMapAttachments.Select((attachment) => attachment.Color.Image).ToArray();
@@ -657,7 +687,12 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
 
         irradianceMapRenderStage.EndCommands(0);
-        irradianceMapRenderStage.SubmitCommands(SCDevice.GraphicsQueue, 0, new Semaphore[] {});
+        var submitInfo = CreateGraphicsSubmitInfo(new[] { irradianceCommandBuffer },
+                                                  new Semaphore[]{}, new Semaphore[]{});
+        if (vk.QueueSubmit(SCDevice.GraphicsQueue, 1, &submitInfo, default) != Result.Success)
+        {
+            throw new Exception("Failed to submit graphics queue!");
+        }
         vk.QueueWaitIdle(SCDevice.GraphicsQueue);
 
         Image[] irradianceMapImages = irradianceMapAttachments.Select((attachment) => attachment.Color.Image).ToArray();
@@ -965,33 +1000,6 @@ unsafe public partial class VulkanRenderer : IDisposable
                                  geometryPipeline.Layout, 1, 1, in material.DescriptorSets[currentFrame], 0, default);
     }
 
-    void CreateSyncObjects(out Semaphore[] imageAvailableSemaphores,
-                           out Fence[] inFlightFences)
-    {
-        imageAvailableSemaphores = new Semaphore[MaxFramesInFlight];
-        inFlightFences = new Fence[MaxFramesInFlight];
-
-        SemaphoreCreateInfo semaphoreInfo = new()
-        {
-            SType = StructureType.SemaphoreCreateInfo
-        };
-
-        FenceCreateInfo fenceInfo = new()
-        {
-            SType = StructureType.FenceCreateInfo,
-            Flags = FenceCreateFlags.SignaledBit
-        };
-
-        for (int i = 0; i < MaxFramesInFlight; i++)
-        {
-            if (vk.CreateSemaphore(SCDevice.LogicalDevice, in semaphoreInfo, null, out imageAvailableSemaphores[i]) != Result.Success ||
-                vk.CreateFence(SCDevice.LogicalDevice, in fenceInfo, null, out inFlightFences[i]) != Result.Success)
-            {
-                throw new Exception("Failed to create sync objects!");
-            }
-        }
-    }
-
     CommandBuffer BeginSingleTimeCommand()
     {
         CommandBufferAllocateInfo allocInfo = new()
@@ -1030,6 +1038,33 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.QueueWaitIdle(SCDevice.GraphicsQueue);
 
         vk.FreeCommandBuffers(SCDevice.LogicalDevice, SCDevice.CommandPool, 1, in commandBuffer);
+    }
+
+    SubmitInfo CreateGraphicsSubmitInfo(CommandBuffer[] commandBuffers, Semaphore[] waitSemaphores,
+                                        Semaphore[] signalSemaphores)
+    {
+        var waitStages = new PipelineStageFlags[waitSemaphores.Length];
+        Array.Fill(waitStages, PipelineStageFlags.ColorAttachmentOutputBit);
+
+        SubmitInfo submitInfo = new()
+        {
+            SType = StructureType.SubmitInfo,
+            CommandBufferCount = (uint) commandBuffers.Length,
+            SignalSemaphoreCount = (uint) signalSemaphores.Length,
+            WaitSemaphoreCount = (uint) waitSemaphores.Length,
+        };
+        fixed (CommandBuffer* pCommandBuffers = commandBuffers)
+        fixed (Semaphore* pSignalSemaphores = signalSemaphores)
+        fixed (Semaphore* pWaitSemaphores = waitSemaphores)
+        fixed (PipelineStageFlags* pWaitStages = waitStages)
+        {
+            submitInfo.PCommandBuffers = pCommandBuffers;
+            submitInfo.PSignalSemaphores = pSignalSemaphores;
+            submitInfo.PWaitSemaphores = pWaitSemaphores;
+            submitInfo.PWaitDstStageMask = pWaitStages;
+        }
+
+        return submitInfo;
     }
 
     // IDisposable Methods

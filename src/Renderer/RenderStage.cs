@@ -6,7 +6,6 @@ namespace Renderer;
 unsafe public class RenderStage : IDisposable
 {
     private CommandBuffer[] commandBuffers;
-    private Semaphore[] signalSemaphores;
     private Framebuffer[] framebuffers;
     private IFramebufferAttachmentCollection[] framebufferAttachmentCollections;
 
@@ -69,21 +68,6 @@ unsafe public class RenderStage : IDisposable
             }
         }
         commandBuffers = tmpCommandBuffers;
-
-        // Create signal semaphores
-        this.signalSemaphores = new Semaphore[commandBufferCount];
-        SemaphoreCreateInfo semaphoreInfo = new()
-        {
-            SType = StructureType.SemaphoreCreateInfo,
-        };
-
-        for (uint i = 0; i < commandBufferCount; i++) 
-        {
-            if (vk.CreateSemaphore(scDevice.LogicalDevice, in semaphoreInfo, null, out signalSemaphores[i]) != Result.Success)
-            {
-                throw new Exception("Failed to create semaphores!");
-            }
-        }
     }
 
     /// <summary>
@@ -174,41 +158,6 @@ unsafe public class RenderStage : IDisposable
         vk.CmdEndRenderPass(commandBuffers[commandBufferIndex]);
     }
 
-    public void SubmitCommands(Queue queue, uint commandBufferIndex, Semaphore[] waitSemaphores, Fence? inFlightFence = null)
-    {
-        var signalSemaphore = signalSemaphores[commandBufferIndex];
-        var commandBuffer = commandBuffers[commandBufferIndex];
-        var waitStage = PipelineStageFlags.ColorAttachmentOutputBit;
-
-        SubmitInfo submitInfo = new()
-        {
-            SType = StructureType.SubmitInfo,
-            SignalSemaphoreCount = 1,
-            PSignalSemaphores = &signalSemaphore,
-            CommandBufferCount = 1,
-            PCommandBuffers = &commandBuffer,
-            PWaitDstStageMask = &waitStage,
-            WaitSemaphoreCount = (uint) waitSemaphores.Length
-        };
-        fixed (Semaphore* waitSemaphoresPtr = waitSemaphores)
-            submitInfo.PWaitSemaphores = waitSemaphoresPtr;
-
-        if (inFlightFence.HasValue)
-        {
-            if (vk.QueueSubmit(queue, 1, in submitInfo, inFlightFence.Value) != Result.Success)
-            {
-                throw new Exception("Failed to submit queue!");
-            }
-        }
-        else
-        {
-            if (vk.QueueSubmit(queue, 1, in submitInfo, default) != Result.Success)
-            {
-                throw new Exception("Failed to submit queue!");
-            }
-        }
-    }
-
     public CommandBuffer GetCommandBuffer(uint commandBufferIndex)
     {
         return commandBuffers[commandBufferIndex];
@@ -217,11 +166,6 @@ unsafe public class RenderStage : IDisposable
     public void ResetCommandBuffer(uint commandBufferIndex)
     {
         vk.ResetCommandBuffer(commandBuffers[commandBufferIndex], CommandBufferResetFlags.None);
-    }
-
-    public Semaphore GetSignalSemaphore(uint semaphoreIndex)
-    {
-        return signalSemaphores[semaphoreIndex];
     }
 
     protected virtual void Dispose(bool disposing)
@@ -242,11 +186,6 @@ unsafe public class RenderStage : IDisposable
             foreach (var framebufferAttachmentCollection in framebufferAttachmentCollections)
             {
                 framebufferAttachmentCollection.Dispose();
-            }
-
-            foreach (var semaphore in signalSemaphores)
-            {
-                vk.DestroySemaphore(scDevice.LogicalDevice, semaphore, null);
             }
 
             disposedValue = true;
