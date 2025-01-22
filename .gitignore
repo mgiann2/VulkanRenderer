@@ -2,6 +2,6 @@ bin
 obj
 .vscode
 compile.sh
-MGSVRendering
-MGSVRendering.pdb
-MGSVRendering.sln
+VulkanRenderer
+VulkanRenderer.pdb
+VulkanRenderer.sln
