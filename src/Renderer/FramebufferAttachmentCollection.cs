@@ -7,6 +7,7 @@ public interface IFramebufferAttachmentCollection : IDisposable
     public IReadOnlyList<IFramebufferAttachment> ColorAttachments { get; }
     public IFramebufferAttachment? DepthAttachment { get; }
     public ImageView[] Attachments { get; }
+    public Extent2D ImageExtent { get; }
 }
 
 unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
@@ -29,11 +30,13 @@ unsafe public class SingleColorAttachment : IFramebufferAttachmentCollection
             return new ImageView[] { Color.ImageView, Depth.ImageView };
         }
     }
+    public Extent2D ImageExtent { get; }
 
     private bool disposedValue;
 
     public SingleColorAttachment(SCDevice scDevice, Format format, Extent2D imageExtent)
     {
+        ImageExtent = imageExtent;
         Color = new ImageAttachment(scDevice, format,
                 ImageUsageFlags.ColorAttachmentBit | ImageUsageFlags.TransferSrcBit, imageExtent);
         Depth = new ImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice),
@@ -83,11 +86,13 @@ unsafe public class DepthOnlyAttachment : IFramebufferAttachmentCollection
             return new ImageView[] { Depth.ImageView };
         }
     }
+    public Extent2D ImageExtent { get; }
 
     private bool disposedValue;
 
     public DepthOnlyAttachment(SCDevice scDevice, Extent2D imageExtent)
     {
+        ImageExtent = imageExtent;
         Depth = new ImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice), 
                 ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
     }
@@ -134,11 +139,13 @@ unsafe public class DepthCubeMapOnlyAttachment : IFramebufferAttachmentCollectio
             return new ImageView[] { Depth.ImageView };
         }
     }
+    public Extent2D ImageExtent { get; }
 
     private bool disposedValue;
 
     public DepthCubeMapOnlyAttachment(SCDevice scDevice, Extent2D imageExtent)
     {
+        ImageExtent = imageExtent;
         Depth = new CubeMapImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice), 
                 ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
     }
@@ -191,9 +198,11 @@ unsafe public class GBufferAttachments : IFramebufferAttachmentCollection
             return new ImageView[] { Albedo.ImageView, Normal.ImageView, AoRoughnessMetalness.ImageView, Position.ImageView, Depth.ImageView };
         }
     }
+    public Extent2D ImageExtent { get; }
 
     public GBufferAttachments(SCDevice scDevice, Extent2D swapchainImageExtent)
     {
+        ImageExtent = swapchainImageExtent;
         Albedo = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         Normal = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         AoRoughnessMetalness = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
@@ -254,10 +263,12 @@ unsafe public class CompositionAttachments : IFramebufferAttachmentCollection
 
     public CompositionAttachments(SCDevice scDevice, Extent2D swapchainImageExtent)
     {
+        ImageExtent = swapchainImageExtent;
         Color = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         ThresholdedColor = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
         Depth = new ImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice), ImageUsageFlags.DepthStencilAttachmentBit, swapchainImageExtent);
     }
+    public Extent2D ImageExtent { get; }
 
     protected virtual void Dispose(bool disposing)
     {
@@ -305,9 +316,11 @@ unsafe public class BloomAttachments : IFramebufferAttachmentCollection
             return new ImageView[] { Color.ImageView };
         }
     }
+    public Extent2D ImageExtent { get; }
 
     public BloomAttachments(SCDevice scDevice, Extent2D swapchainImageExtent)
     {
+        ImageExtent = swapchainImageExtent;
         Color = new ImageAttachment(scDevice, Format.R16G16B16A16Sfloat, ImageUsageFlags.ColorAttachmentBit, swapchainImageExtent);
     }
 
@@ -355,9 +368,11 @@ unsafe public class SwapChainAttachment : IFramebufferAttachmentCollection
             return new ImageView[] { SwapchainAttachment.ImageView };
         }
     }
+    public Extent2D ImageExtent { get; }
 
     public SwapChainAttachment(SCDevice scDevice, ImageView imageView, Format format)
     {
+        ImageExtent = scDevice.SwapchainInfo.Extent;
         SwapchainAttachment = new ImageViewAttachment(scDevice, imageView, format);
     }
 

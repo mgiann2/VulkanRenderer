@@ -69,10 +69,10 @@ unsafe public partial class VulkanRenderer : IDisposable
     private DescriptorSet[][] pointShadowDescriptorSets = new DescriptorSet[MaxLights][];
     Matrix4X4<float>[] cubeMapViewMatrices = new Matrix4X4<float>[]
     {
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
         Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
+        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
+        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
         Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
         Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
     };
@@ -345,9 +345,9 @@ unsafe public partial class VulkanRenderer : IDisposable
             vk.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, pointShadowPipeline.Layout,
                     0, 1, &descriptorSet, 0, default);
             vk.CmdPushConstants(commandBuffer, pointShadowPipeline.Layout,
-                    ShaderStageFlags.FragmentBit, 64, (uint) Unsafe.SizeOf<Vector3D<float>>(), &lightPos);
+                    ShaderStageFlags.GeometryBit | ShaderStageFlags.FragmentBit, 64, (uint) Unsafe.SizeOf<Vector3D<float>>(), &lightPos);
             vk.CmdPushConstants(commandBuffer, pointShadowPipeline.Layout,
-                    ShaderStageFlags.FragmentBit, 76, (uint) Unsafe.SizeOf<float>(), &farPlane);
+                    ShaderStageFlags.GeometryBit | ShaderStageFlags.FragmentBit, 76, (uint) Unsafe.SizeOf<float>(), &farPlane);
 
             foreach (var drawCall in solidModelDrawCalls)
             {
@@ -874,7 +874,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.ByRegionBit);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ gBufferAttachments }, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ gBufferAttachments }, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -908,7 +908,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ compositionAttachments }, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ compositionAttachments }, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -938,7 +938,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ bloomAttachments }, SCDevice.SwapchainInfo.Extent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ bloomAttachments }, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
@@ -971,7 +971,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, SCDevice.SwapchainInfo.Extent, (uint) swapchainImageCount, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, (uint) swapchainImageCount, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -1005,7 +1005,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, new Extent2D(512, 512), 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, 6, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -1040,7 +1040,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, new Extent2D(32, 32), 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, 6, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -1070,7 +1070,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, shadowMapExtent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
@@ -1087,7 +1087,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                             Height = PointShadowMapResolution };
         DepthCubeMapOnlyAttachment depthAttachments = new(SCDevice, shadowMapExtent);
 
-        RenderStage renderStage = new(SCDevice, pointShadowMapRenderPass, new[] { depthAttachments }, shadowMapExtent, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, pointShadowMapRenderPass, new[] { depthAttachments }, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {

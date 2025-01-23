@@ -1,5 +1,4 @@
 using Silk.NET.Vulkan;
-using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace Renderer;
 
@@ -18,11 +17,11 @@ unsafe public class RenderStage : IDisposable
     public RenderPass RenderPass { get; }
     public List<ClearValue> ClearValues = new();
 
-    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, Extent2D extent, uint framebufferCount, uint commandBufferCount)
+    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, uint framebufferCount, uint commandBufferCount)
     {
         vk = VulkanHelper.Vk;
         this.scDevice = scDevice;
-        this.extent = extent;
+        this.extent = framebufferAttachmentCollections[0].ImageExtent;
 
         this.RenderPass = renderPass;
         this.framebufferAttachmentCollections = framebufferAttachmentCollections;
