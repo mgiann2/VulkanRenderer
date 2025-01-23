@@ -81,6 +81,12 @@ unsafe public static class VulkanHelper
         throw new Exception("Unable to find suitable memory type!");
     }
 
+    public static (Buffer, DeviceMemory) CreateUniformBuffer(SCDevice scDevice, ulong bufferSize)
+    {
+        return CreateBuffer(scDevice, bufferSize, BufferUsageFlags.UniformBufferBit,
+                MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+    }
+
     public static (Buffer[], DeviceMemory[]) CreateUniformBuffers(SCDevice scDevice, ulong bufferSize, uint bufferCount)
     {
         var uniformBuffers = new Buffer[bufferCount];
@@ -335,7 +341,8 @@ unsafe public static class VulkanHelper
         return (image, imageMemory);
     }
 
-    public static ImageView CreateCubemapImageView(SCDevice scDevice, Image image, Format format)
+    public static ImageView CreateCubemapImageView(SCDevice scDevice, Image image,
+            Format format, ImageAspectFlags aspectFlags = ImageAspectFlags.ColorBit)
     {
         ImageViewCreateInfo viewInfo = new()
         {
@@ -345,7 +352,7 @@ unsafe public static class VulkanHelper
             ViewType = ImageViewType.TypeCube,
             SubresourceRange = new()
             {
-                AspectMask = ImageAspectFlags.ColorBit,
+                AspectMask = aspectFlags,
                 BaseMipLevel = 0,
                 LevelCount = 1,
                 BaseArrayLayer = 0,

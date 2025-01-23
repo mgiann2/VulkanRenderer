@@ -115,6 +115,57 @@ unsafe public class DepthOnlyAttachment : IFramebufferAttachmentCollection
     }
 }
 
+unsafe public class DepthCubeMapOnlyAttachment : IFramebufferAttachmentCollection
+{
+    public CubeMapImageAttachment Depth { get; }
+
+    public IReadOnlyList<IFramebufferAttachment> ColorAttachments 
+    {
+        get
+        {
+            return new IFramebufferAttachment[] { };
+        }
+    }
+    public IFramebufferAttachment DepthAttachment { get => Depth; } 
+    public ImageView[] Attachments
+    {
+        get
+        {
+            return new ImageView[] { Depth.ImageView };
+        }
+    }
+
+    private bool disposedValue;
+
+    public DepthCubeMapOnlyAttachment(SCDevice scDevice, Extent2D imageExtent)
+    {
+        Depth = new CubeMapImageAttachment(scDevice, VulkanHelper.FindDepthFormat(scDevice), 
+                ImageUsageFlags.DepthStencilAttachmentBit, imageExtent);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            // free unmanaged resources (unmanaged objects) and override finalizer
+            Depth.Dispose();
+
+            disposedValue = true;
+        }
+    }
+
+    ~DepthCubeMapOnlyAttachment()
+    {
+        Dispose(disposing: false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+}
+
 unsafe public class GBufferAttachments : IFramebufferAttachmentCollection
 {
     public ImageAttachment Albedo { get; }

@@ -43,6 +43,10 @@ unsafe public partial class VulkanRenderer
     const string DepthVertexShaderFilename = "depth.vert.spv";
     const string DepthFragmentShaderFilename = "depth.frag.spv";
 
+    const string PointShadowVertexShaderFilename = "point_shadow.vert.spv";
+    const string PointShadowGeometryShaderFilename = "point_shadow.geom.spv";
+    const string PointShadowFragmentShaderFilename = "point_shadow.frag.spv";
+
     const uint GeometryPassColorAttachmentCount = 4;
     const uint CompositionPassColorAttachmentCount = 2;
     const uint BloomPassColorAttachmentCount = 1;
@@ -60,7 +64,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(GeometryPassColorAttachmentCount)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddDescriptorSetLayout(materialInfoDescriptorSetLayout)
                        .AddPushConstantRange((uint) Unsafe.SizeOf<Matrix4X4<float>>(), 0, ShaderStageFlags.VertexBit);
 
@@ -78,7 +82,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(CompositionPassColorAttachmentCount)
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddDescriptorSetLayout(screenTextureDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
@@ -97,8 +101,9 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
                        .SetColorBlendingAdditive(CompositionPassColorAttachmentCount)
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddDescriptorSetLayout(screenTextureDescriptorSetLayout)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout)
                        .AddPushConstantRange((uint) Unsafe.SizeOf<LightInfo>(), 0, ShaderStageFlags.VertexBit);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -115,7 +120,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(CompositionPassColorAttachmentCount)
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddPushConstantRange((uint) Unsafe.SizeOf<SolidColorObjectInfo>(), 0, ShaderStageFlags.VertexBit);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -132,7 +137,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(CompositionPassColorAttachmentCount)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -183,7 +188,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(CubemapColorAttachmentCount)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -200,7 +205,7 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(CubemapColorAttachmentCount)
                        .SetDepthStencilInfo(true, true, CompareOp.Less)
-                       .AddDescriptorSetLayout(sceneInfoDescriptorSetLayout)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);    
@@ -222,10 +227,29 @@ unsafe public partial class VulkanRenderer
         return pipelineBuilder.Build(renderPass, 0);
     }
 
+    GraphicsPipeline CreatePointShadowPipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + PointShadowVertexShaderFilename);
+        byte[] geometryShaderCode = File.ReadAllBytes(ShadersPath + PointShadowGeometryShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + PointShadowFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(SCDevice);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode, geometryShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.FrontBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(0)
+                       .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
+                       .AddPushConstantRange((uint) Unsafe.SizeOf<Matrix4X4<float>>(), 0, ShaderStageFlags.VertexBit)
+                       .AddPushConstantRange((uint) Unsafe.SizeOf<float>() * 4, 64, ShaderStageFlags.FragmentBit);
+
+        return pipelineBuilder.Build(renderPass, 0);
+    }
+
     // Scene Info Descriptor Set
     // -------------------------
 
-    DescriptorSetLayout CreateSceneInfoDescriptorSetLayout()
+    DescriptorSetLayout CreateUniformBufferDescriptorSetLayout()
     {
         DescriptorSetLayoutBinding uboBinding = new()
         {
@@ -233,7 +257,7 @@ unsafe public partial class VulkanRenderer
             DescriptorType = DescriptorType.UniformBuffer,
             DescriptorCount = 1,
             PImmutableSamplers = default,
-            StageFlags = ShaderStageFlags.VertexBit
+            StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.GeometryBit
         };
 
         DescriptorSetLayoutCreateInfo layoutInfo = new()
@@ -251,7 +275,7 @@ unsafe public partial class VulkanRenderer
         return layout;
     }
 
-    DescriptorPool CreateSceneInfoDescriptorPool(uint maxSets)
+    DescriptorPool CreateUniformBufferDescriptorPool(uint maxSets)
     {
         DescriptorPoolSize poolSize = new()
         {
@@ -282,7 +306,7 @@ unsafe public partial class VulkanRenderer
         var descriptorSets = new DescriptorSet[setCount];
 
         var layouts = new DescriptorSetLayout[setCount];
-        Array.Fill(layouts, sceneInfoDescriptorSetLayout);
+        Array.Fill(layouts, uniformBufferDescriptorSetLayout);
         
         fixed (DescriptorSetLayout* layoutsPtr = layouts)
         {
@@ -291,7 +315,7 @@ unsafe public partial class VulkanRenderer
                 SType = StructureType.DescriptorSetAllocateInfo,
                 PSetLayouts = layoutsPtr,
                 DescriptorSetCount = (uint) layouts.Length,
-                DescriptorPool = sceneInfoDescriptorPool
+                DescriptorPool = uniformBufferDescriptorPool
             };
             
             fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
@@ -329,57 +353,45 @@ unsafe public partial class VulkanRenderer
         return descriptorSets;
     }
 
-    DescriptorSet[] CreateShadowInfoDescriptorSets(Buffer[] shadowInfoBuffers)
+    DescriptorSet CreateShadowMatricesDescriptorSet(Buffer shadowMatricesBuffer)
     {
-        int setCount = shadowInfoBuffers.Length; 
-        var descriptorSets = new DescriptorSet[setCount];
+        DescriptorSet descriptorSet;
+        var layout = uniformBufferDescriptorSetLayout;
 
-        var layouts = new DescriptorSetLayout[setCount];
-        Array.Fill(layouts, sceneInfoDescriptorSetLayout);
-        
-        fixed (DescriptorSetLayout* layoutsPtr = layouts)
+        DescriptorSetAllocateInfo allocInfo = new()
         {
-            DescriptorSetAllocateInfo allocInfo = new()
-            {
-                SType = StructureType.DescriptorSetAllocateInfo,
-                PSetLayouts = layoutsPtr,
-                DescriptorSetCount = (uint) layouts.Length,
-                DescriptorPool = sceneInfoDescriptorPool
-            };
-            
-            fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
-            {
-                if (vk.AllocateDescriptorSets(SCDevice.LogicalDevice, in allocInfo, descriptorSetsPtr) != Result.Success)
-                {
-                    throw new Exception("Failed to allocate descriptor sets!");
-                }
-            }
+            SType = StructureType.DescriptorSetAllocateInfo,
+            PSetLayouts = &layout,
+            DescriptorSetCount = 1,
+            DescriptorPool = uniformBufferDescriptorPool
+        };
+
+        if (vk.AllocateDescriptorSets(SCDevice.LogicalDevice, in allocInfo, &descriptorSet) != Result.Success)
+        {
+            throw new Exception("Failed to allocate descripto set!");
         }
 
-        for (int i = 0; i < setCount; i++)
+        DescriptorBufferInfo bufferInfo = new()
         {
-            DescriptorBufferInfo bufferInfo = new()
-            {
-                Buffer = shadowInfoBuffers[i],
-                Offset = 0,
-                Range = (ulong) Unsafe.SizeOf<ShadowInfo>()
-            };
+            Buffer = shadowMatricesBuffer,
+            Offset = 0,
+            Range = (ulong) Unsafe.SizeOf<Matrix4X4<float>>() * 6
+        };
 
-            WriteDescriptorSet descriptorWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = descriptorSets[i],
-                DstBinding = 0,
-                DstArrayElement = 0,
-                DescriptorType = DescriptorType.UniformBuffer,
-                DescriptorCount = 1,
-                PBufferInfo = &bufferInfo
-            };
+        WriteDescriptorSet descriptorWrite = new()
+        {
+            SType = StructureType.WriteDescriptorSet,
+            DstSet = descriptorSet,
+            DstBinding = 0,
+            DstArrayElement = 0,
+            DescriptorType = DescriptorType.UniformBuffer,
+            DescriptorCount = 1,
+            PBufferInfo = &bufferInfo
+        };
 
-            vk.UpdateDescriptorSets(SCDevice.LogicalDevice, 1, ref descriptorWrite, 0, default);
-        }
+        vk.UpdateDescriptorSets(SCDevice.LogicalDevice, 1, ref descriptorWrite, 0, default);
 
-        return descriptorSets;
+        return descriptorSet;
     }
 
     // Material Info Descriptor Set

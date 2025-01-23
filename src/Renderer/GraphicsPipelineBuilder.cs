@@ -55,6 +55,53 @@ unsafe public class GraphicsPipelineBuilder : IDisposable
         return this;
     }
 
+    public GraphicsPipelineBuilder SetShaders(byte[] vertexShaderCode,
+                                              byte[] fragmentShaderCode,
+                                              byte[] geometryShaderCode)
+    {
+        foreach (var shaderStageInfo in shaderStagesInfo)
+        {
+            vk.DestroyShaderModule(scDevice.LogicalDevice, shaderStageInfo.Module, null);
+        }
+
+        var vertexShaderModule = VulkanHelper.CreateShaderModule(scDevice, vertexShaderCode);
+        var fragmentShaderModule = VulkanHelper.CreateShaderModule(scDevice, fragmentShaderCode);
+        var geometryShaderModule = VulkanHelper.CreateShaderModule(scDevice, geometryShaderCode);
+
+        PipelineShaderStageCreateInfo vertexShaderInfo = new()
+        {
+            SType = StructureType.PipelineShaderStageCreateInfo,
+            Stage = ShaderStageFlags.VertexBit,
+            Module = vertexShaderModule,
+            PName = (byte*) SilkMarshal.StringToPtr("main")
+        };
+
+        PipelineShaderStageCreateInfo fragmentShaderInfo = new()
+        {
+            SType = StructureType.PipelineShaderStageCreateInfo,
+            Stage = ShaderStageFlags.FragmentBit,
+            Module = fragmentShaderModule,
+            PName = (byte*) SilkMarshal.StringToPtr("main")
+        };
+
+        PipelineShaderStageCreateInfo geometryShaderInfo = new()
+        {
+            SType = StructureType.PipelineShaderStageCreateInfo,
+            Stage = ShaderStageFlags.GeometryBit,
+            Module = geometryShaderModule,
+            PName = (byte*) SilkMarshal.StringToPtr("main")
+        };
+
+        shaderStagesInfo = new PipelineShaderStageCreateInfo[] 
+        {
+            vertexShaderInfo,
+            fragmentShaderInfo,
+            geometryShaderInfo
+        };
+
+        return this;
+    }
+
     public GraphicsPipelineBuilder SetInputAssemblyInfo(PrimitiveTopology topology, bool primitiveRestartEnabled)
     {
         assemblyInfo = new()

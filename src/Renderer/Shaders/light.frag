@@ -4,6 +4,7 @@ layout (set = 1, binding = 0) uniform sampler2D albedoSampler;
 layout (set = 1, binding = 1) uniform sampler2D normalSampler;
 layout (set = 1, binding = 2) uniform sampler2D aoRoughnessMetalnessSampler;
 layout (set = 1, binding = 3) uniform sampler2D positionSampler;
+layout (set = 2, binding = 0) uniform samplerCube pointShadow;
 
 layout (location = 0) in vec3 inLightColor;
 layout (location = 1) in vec3 inLightPos;
@@ -14,11 +15,13 @@ layout (location = 1) out vec4 outThresholdColor;
 
 const float PI = 3.14159265359;
 const float SURFACE_REFLECTION = 0.04;
+const float FAR_PLANE = 25.0;
 
 float NormalDistribution(vec3 N, vec3 H, float roughness);
 float GeometrySchlick(float NdotV, float roughness);
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
 vec3 FresnelSchlick(float cosTheta, vec3 F0);
+float ShadowCalculation(vec3 fragPos);
 
 void main() {
     // get needed light variables
@@ -59,7 +62,8 @@ void main() {
     vec3 specular = (normalDist * geometry * fresnel) / (4.0 * NdotV * NdotL + 0.0001);
 
     // compute output light
-    vec3 outLight = (kD * albedo / PI + specular) * radiance * NdotL;
+    float shadow = ShadowCalculation(pos);
+    vec3 outLight = (kD * albedo / PI + specular) * radiance * (1.0 - shadow) * NdotL;
     outColor = vec4(outLight, 1.0);
 
     float brighness = dot(outColor.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -69,7 +73,8 @@ void main() {
         outThresholdColor = vec4(0.0, 0.0, 0.0, 1.0);
 }
 
-float NormalDistribution(vec3 N, vec3 H, float roughness) {
+float NormalDistribution(vec3 N, vec3 H, float roughness)
+{
     float a = roughness * roughness;
     float a2 = a * a;
     float NdotH = max(dot(N, H), 0.0);
@@ -81,14 +86,16 @@ float NormalDistribution(vec3 N, vec3 H, float roughness) {
     return a2 / denom;
 }
 
-float GeometrySchlick(float NdotV, float roughness) {
+float GeometrySchlick(float NdotV, float roughness)
+{
     float r = (roughness + 1.0);
     float k = (r * r) / 8.0;
 
     return NdotV / (NdotV * (1.0 - k) + k);
 }
 
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
     float g1 = GeometrySchlick(NdotV, roughness);
@@ -97,6 +104,20 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     return g1 * g2;
 }
 
-vec3 FresnelSchlick(float cosTheta, vec3 F0) {
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
+{
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+float ShadowCalculation(vec3 fragPos)
+{
+    vec3 fragToLight = inLightPos - fragPos;
+    float closestDepth = texture(pointShadow, fragToLight).r;
+    closestDepth *= FAR_PLANE;
+    float currentDepth = length(fragToLight);
+
+    float bias = 0.05;
+    float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
+
+    return shadow;
 }

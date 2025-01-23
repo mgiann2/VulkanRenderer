@@ -389,6 +389,7 @@ unsafe public class SCDevice : IDisposable
         }
 
         PhysicalDeviceFeatures deviceFeatures = new();
+        deviceFeatures.GeometryShader = true;
         deviceFeatures.SamplerAnisotropy = true;
 
         DeviceCreateInfo deviceInfo = new()

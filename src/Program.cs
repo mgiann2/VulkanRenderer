@@ -34,7 +34,7 @@ class Program
         // setup window
         var options = WindowOptions.DefaultVulkan with
         {
-            Size = new Vector2D<int>(1920, 1080),
+            Size = new Vector2D<int>(960, 540),
             Title = "Vulkan Renderer"
         };
 
