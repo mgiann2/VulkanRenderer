@@ -147,6 +147,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     GraphicsPipeline pointShadowPipeline;
 
     Sampler textureSampler;
+    Sampler bloomSampler;
     Sampler shadowSampler;
 
     Semaphore[] imageAvailableSemaphores;
@@ -183,8 +184,9 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
 
         textureSampler = VulkanHelper.CreateTextureSampler(SCDevice);
+        bloomSampler = VulkanHelper.CreateBloomSampler(SCDevice);
         shadowSampler = VulkanHelper.CreateShadowSampler(SCDevice);
-
+       
         // Create descriptor pools
         uniformBufferDescriptorPool = CreateUniformBufferDescriptorPool(MaxFramesInFlight + CubemapMapSceneInfoDescriptors + MaxLights * MaxFramesInFlight);
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxMaterialDescriptorSets);
@@ -223,8 +225,8 @@ unsafe public partial class VulkanRenderer : IDisposable
         compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView, textureSampler, MaxFramesInFlight);
         thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView, textureSampler, MaxFramesInFlight);
         dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Depth.ImageView, shadowSampler, MaxFramesInFlight);
-        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, textureSampler, MaxFramesInFlight);
-        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, textureSampler, MaxFramesInFlight);
+        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, bloomSampler, MaxFramesInFlight);
+        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, bloomSampler, MaxFramesInFlight);
         for (int i = 0; i < MaxLights; i++)
         {
             shadowMatricesDescriptorSets[i] = CreateShadowMatricesDescriptorSets(shadowMatricesBuffers[i]);
