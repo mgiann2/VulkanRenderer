@@ -91,12 +91,12 @@ class Program
         {
             new()
             {
-                Position = new Vector3D<float>(-2.0f, 2.0f, 0.0f),
+                Position = new Vector3D<float>(-1.0f, 1.0f, 0.0f),
                 Color = new Vector3D<float>(0.0f, 2.0f, 0.0f),
             },
             new()
             {
-                Position = new Vector3D<float>(2.0f, 2.0f, 0.0f),
+                Position = new Vector3D<float>(1.0f, 1.0f, 0.0f),
                 Color = new Vector3D<float>(0.0f, 0.0f, 2.0f)
             }
         }; 

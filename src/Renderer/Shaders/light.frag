@@ -17,6 +17,15 @@ const float PI = 3.14159265359;
 const float SURFACE_REFLECTION = 0.04;
 const float FAR_PLANE = 25.0;
 
+vec3 gridSamplingDisk[20] = vec3[]
+(
+   vec3(1, 1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1, 1,  1), 
+   vec3(1, 1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1, 1, -1),
+   vec3(1, 1,  0), vec3( 1, -1,  0), vec3(-1, -1,  0), vec3(-1, 1,  0),
+   vec3(1, 0,  1), vec3(-1,  0,  1), vec3( 1,  0, -1), vec3(-1, 0, -1),
+   vec3(0, 1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0, 1, -1)
+);
+
 float NormalDistribution(vec3 N, vec3 H, float roughness);
 float GeometrySchlick(float NdotV, float roughness);
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
@@ -112,12 +121,21 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 float ShadowCalculation(vec3 fragPos)
 {
     vec3 lightToFrag = fragPos - inLightPos;
-    float closestDepth = texture(pointShadow, lightToFrag).r;
-    closestDepth *= FAR_PLANE;
     float currentDepth = length(lightToFrag);
 
-    float bias = 0.05;
-    float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
+    float shadow = 0.0;
+    float bias = 0.15;
+    int samples = 20;
+    float viewDistance = length(inCameraPos - fragPos);
+    float diskRadius = (1.0 + (viewDistance / FAR_PLANE)) / 25.0;
+    for (int i = 0; i < samples; ++i)
+    {
+        float closestDepth = texture(pointShadow, lightToFrag + gridSamplingDisk[i] * diskRadius).r;
+        closestDepth *= FAR_PLANE;
+        if (currentDepth - bias > closestDepth)
+            shadow += 1.0;
+    }
+    shadow /= float(samples);
 
     return shadow;
 }
