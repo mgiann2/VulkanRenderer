@@ -73,8 +73,8 @@ unsafe public partial class VulkanRenderer : IDisposable
     // Low Resolution: 512x512 => 1Mb per face => 6Mb per cubemap => 0.75Gb for 128 lights
     // Medium Resolution: 1024x1024 => 4Mb per face => 24Mb per cubemap => 3Gb for 128 lights
     // High Resolution : 2048x2048 => 16Mb per face => 96Mb per cubemap => 12Gb for 128 lights
-    const uint ShadowMapResolution = 1024;
-    const uint PointShadowMapResolution = 512;
+    const uint ShadowMapResolution = 512;
+    const uint PointShadowMapResolution = 256;
 
     const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
     const string SkyboxTexturePath = AssetsPath + "hdris/EveningSkyHDRI.jpg";
@@ -207,16 +207,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         (irradianceMapRenderStage, irradianceMapAttachments) = CreateIrradianceMapRenderStage();
         (depthMapRenderStage, depthMapAttachment) = CreateDepthMapRenderStage();
         RenderPassBuilder renderPassBuilder = new(SCDevice);
-        renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice), ImageLayout.ShaderReadOnlyOptimal)
-                         .AddDependency(Vk.SubpassExternal, 0,
-                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
-                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
-                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
-                                        DependencyFlags.None)
-                         .AddDependency(Vk.SubpassExternal, 0,
-                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
-                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
-                                        DependencyFlags.None);
+        renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice), ImageLayout.ShaderReadOnlyOptimal);
         pointShadowMapRenderPass = renderPassBuilder.Build();
         for (int i = 0; i < pointShadowRenderStages.Length; i++)
         {
@@ -998,16 +989,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         RenderPassBuilder renderPassBuilder = new(SCDevice);
         renderPassBuilder.AddColorAttachment(Format.R16G16B16A16Sfloat, ImageLayout.TransferSrcOptimal)
-                         .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format)
-                         .AddDependency(Vk.SubpassExternal, 0,
-                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
-                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
-                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
-                                        DependencyFlags.None)
-                         .AddDependency(Vk.SubpassExternal, 0,
-                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
-                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
-                                        DependencyFlags.None);
+                         .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format);
         
         RenderPass renderPass = renderPassBuilder.Build();
 
@@ -1033,16 +1015,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         RenderPassBuilder renderPassBuilder = new(SCDevice);
         renderPassBuilder.AddColorAttachment(Format.R16G16B16A16Sfloat, ImageLayout.TransferSrcOptimal)
-                         .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format)
-                         .AddDependency(Vk.SubpassExternal, 0,
-                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
-                                        PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
-                                        AccessFlags.DepthStencilAttachmentWriteBit, AccessFlags.DepthStencilAttachmentWriteBit | AccessFlags.DepthStencilAttachmentReadBit,
-                                        DependencyFlags.None)
-                         .AddDependency(Vk.SubpassExternal, 0,
-                                        PipelineStageFlags.ColorAttachmentOutputBit, PipelineStageFlags.ColorAttachmentOutputBit,
-                                        AccessFlags.None, AccessFlags.ColorAttachmentWriteBit | AccessFlags.ColorAttachmentReadBit,
-                                        DependencyFlags.None);
+                         .SetDepthStencilAttachment(cubefaceAttachments[0].Depth.Format);
         
         RenderPass renderPass = renderPassBuilder.Build();
 

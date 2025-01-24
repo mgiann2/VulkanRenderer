@@ -24,8 +24,6 @@ class Program
     static Model quadModel;
     static Transform? quadTransform;
 
-    static Light[]? lights;
-    
     static Vector2D<float> keyboardMovement = Vector2D<float>.Zero;
     static Vector2D<float> prevMousePosition = Vector2D<float>.Zero;
 
@@ -87,19 +85,16 @@ class Program
         quadModel = new Model(PrimitiveMesh.CreateQuadMesh(renderer), paintedMetalMaterial);
         quadTransform = new Transform(new Vector3D<float>(0.0f, -0.51f, 0.0f), new Vector3D<float>(90.0f, 0.0f, 0.0f), new Vector3D<float>(10.0f));
 
-        lights = new Light[]
+        // add lights to scene
+        Random rand = new Random(12345);
+        Light[] lights = new Light[32];
+        for (int i = 0; i < lights.Length; i++)
         {
-            new()
-            {
-                Position = new Vector3D<float>(-1.0f, 1.0f, 0.0f),
-                Color = new Vector3D<float>(0.0f, 2.0f, 0.0f),
-            },
-            new()
-            {
-                Position = new Vector3D<float>(1.0f, 1.0f, 0.0f),
-                Color = new Vector3D<float>(0.0f, 0.0f, 2.0f)
-            }
-        }; 
+            var light = new Light();
+            light.Color = new Vector3D<float>(rand.NextSingle(), rand.NextSingle(), rand.NextSingle());
+            light.Position = new Vector3D<float>(rand.NextSingle() * 20.0f - 10.0f, rand.NextSingle() + 1.0f, rand.NextSingle() * 20.0f - 10.0f);
+            lights[i] = light;
+        }
         renderer!.Lights.AddRange(lights);
 
         window.Run();
