@@ -111,10 +111,10 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 
 float ShadowCalculation(vec3 fragPos)
 {
-    vec3 fragToLight = inLightPos - fragPos;
-    float closestDepth = texture(pointShadow, fragToLight).r;
+    vec3 lightToFrag = fragPos - inLightPos;
+    float closestDepth = texture(pointShadow, lightToFrag).r;
     closestDepth *= FAR_PLANE;
-    float currentDepth = length(fragToLight);
+    float currentDepth = length(lightToFrag);
 
     float bias = 0.05;
     float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;

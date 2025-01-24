@@ -69,6 +69,58 @@ unsafe public class RenderStage : IDisposable
         commandBuffers = tmpCommandBuffers;
     }
 
+    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, uint layerCount, uint framebufferCount, uint commandBufferCount)
+    {
+        vk = VulkanHelper.Vk;
+        this.scDevice = scDevice;
+        this.extent = framebufferAttachmentCollections[0].ImageExtent;
+
+        this.RenderPass = renderPass;
+        this.framebufferAttachmentCollections = framebufferAttachmentCollections;
+
+        // Create framebuffers
+        this.framebuffers = new Framebuffer[framebufferCount];
+        for (uint i = 0; i < framebufferCount; i++)
+        {
+            var attachments = framebufferAttachmentCollections[i].Attachments;
+            FramebufferCreateInfo framebufferInfo = new()
+            {
+                SType = StructureType.FramebufferCreateInfo,
+                AttachmentCount = (uint) attachments.Length,
+                RenderPass = renderPass,
+                Width = extent.Width,
+                Height = extent.Height,
+                Layers = layerCount
+            };
+            fixed (ImageView* attachmentsPtr = attachments)
+                framebufferInfo.PAttachments = attachmentsPtr;
+
+            if (vk.CreateFramebuffer(scDevice.LogicalDevice, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
+            {
+                throw new Exception("Failed to create framebuffer!");
+            }
+        }
+
+        // Create command buffers
+        var tmpCommandBuffers = new CommandBuffer[commandBufferCount];
+        CommandBufferAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.CommandBufferAllocateInfo,
+            CommandPool = scDevice.CommandPool,
+            Level = CommandBufferLevel.Primary,
+            CommandBufferCount = commandBufferCount 
+        };
+
+        fixed (CommandBuffer* commandBuffersPtr = tmpCommandBuffers)
+        {
+            if (vk.AllocateCommandBuffers(scDevice.LogicalDevice, in allocInfo, commandBuffersPtr) != Result.Success)
+            {
+                throw new Exception("Failed to allocate command buffers!");
+            }
+        }
+        commandBuffers = tmpCommandBuffers;
+    }
+
     /// <summary>
     /// Begins a render stage to allow for drawing commands. Implicitly begins the command buffer
     /// at commandBufferIndex.

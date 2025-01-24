@@ -66,16 +66,8 @@ unsafe public partial class VulkanRenderer : IDisposable
     public List<Light> Lights = new List<Light>();
     private RenderStage[] pointShadowRenderStages = new RenderStage[MaxLights];
     private DepthCubeMapOnlyAttachment[] pointShadowCubeMaps = new DepthCubeMapOnlyAttachment[MaxLights];
+    private DescriptorSet[][] shadowMatricesDescriptorSets = new DescriptorSet[MaxLights][];
     private DescriptorSet[][] pointShadowDescriptorSets = new DescriptorSet[MaxLights][];
-    Matrix4X4<float>[] cubeMapViewMatrices = new Matrix4X4<float>[]
-    {
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
-        Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
-    };
 
     // Very Low Resolution: 256x256 => 0.25Mb per face => 1.5Mb per cubemap => 192Mb for 128 lights
     // Low Resolution: 512x512 => 1Mb per face => 6Mb per cubemap => 0.75Gb for 128 lights
@@ -118,8 +110,8 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     Buffer[] sceneInfoBuffers;
     DeviceMemory[] sceneInfoBuffersMemory;
-    Buffer shadowMatricesBuffer;
-    DeviceMemory shadowMatricesMemory;
+    Buffer[][] shadowMatricesBuffers = new Buffer[MaxLights][];
+    DeviceMemory[][] shadowMatricesMemories = new DeviceMemory[MaxLights][];
 
     DescriptorSetLayout uniformBufferDescriptorSetLayout;
     DescriptorSetLayout materialInfoDescriptorSetLayout;
@@ -138,7 +130,6 @@ unsafe public partial class VulkanRenderer : IDisposable
     DescriptorSet[] dirShadowMapDescriptorSets;
     DescriptorSet[] bloomPass1OutputTextureDescriptorSets;
     DescriptorSet[] bloomPass2OutputTextureDescriptorSets;
-    DescriptorSet shadowMatricesDescriptorSet;
     DescriptorSet skyboxTextureDescriptorSet;
     DescriptorSet irradianceMapDescriptorSet;
 
@@ -185,17 +176,17 @@ unsafe public partial class VulkanRenderer : IDisposable
         SCDevice = new(window, EnableValidationLayers);
 
         (sceneInfoBuffers, sceneInfoBuffersMemory) = VulkanHelper.CreateUniformBuffers(SCDevice, (ulong) Unsafe.SizeOf<SceneInfo>(), MaxFramesInFlight);
-        (shadowMatricesBuffer, shadowMatricesMemory) = VulkanHelper.CreateUniformBuffer(SCDevice, (ulong) Unsafe.SizeOf<Matrix4X4<float>>() * 6);
-        void* data;
-        vk.MapMemory(SCDevice.LogicalDevice, shadowMatricesMemory, 0, (ulong) Unsafe.SizeOf<Matrix4X4<float>>(), 0, &data);
-        cubeMapViewMatrices.AsSpan().CopyTo(new Span<Matrix4X4<float>>(data, 6));
-        vk.UnmapMemory(SCDevice.LogicalDevice, shadowMatricesMemory);
+        for (int i = 0; i < MaxLights; i++)
+        {
+            (shadowMatricesBuffers[i], shadowMatricesMemories[i]) = VulkanHelper.CreateUniformBuffers(SCDevice, 
+                    (ulong) Unsafe.SizeOf<Matrix4X4<float>>() * 6, MaxFramesInFlight);
+        }
 
         textureSampler = VulkanHelper.CreateTextureSampler(SCDevice);
         shadowSampler = VulkanHelper.CreateShadowSampler(SCDevice);
 
         // Create descriptor pools
-        uniformBufferDescriptorPool = CreateUniformBufferDescriptorPool(MaxFramesInFlight + CubemapMapSceneInfoDescriptors + 1);
+        uniformBufferDescriptorPool = CreateUniformBufferDescriptorPool(MaxFramesInFlight + CubemapMapSceneInfoDescriptors + MaxLights * MaxFramesInFlight);
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxMaterialDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
         singleTextureDescriptorPool = CreateSingleTextureDescriptorPool(MaxLights * MaxFramesInFlight + 32);
@@ -243,9 +234,9 @@ unsafe public partial class VulkanRenderer : IDisposable
         dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Depth.ImageView, shadowSampler, MaxFramesInFlight);
         bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, textureSampler, MaxFramesInFlight);
         bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, textureSampler, MaxFramesInFlight);
-        shadowMatricesDescriptorSet = CreateShadowMatricesDescriptorSet(shadowMatricesBuffer);
-        for (int i = 0; i < pointShadowDescriptorSets.Length; i++)
+        for (int i = 0; i < MaxLights; i++)
         {
+            shadowMatricesDescriptorSets[i] = CreateShadowMatricesDescriptorSets(shadowMatricesBuffers[i]);
             pointShadowDescriptorSets[i] = CreateSingleTextureDescriptorSets(pointShadowCubeMaps[i].Depth.ImageView, shadowSampler, MaxFramesInFlight);
         }
 
@@ -329,12 +320,27 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Generate point shadow maps
         // --------------------------
         List<CommandBuffer> geomCommandBuffers = new();
+        Matrix4X4<float> shadowProj = Matrix4X4.CreatePerspectiveFieldOfView(MathF.PI / 2.0f, 1.0f, 1.0f, 25.0f);
         for (int i = 0; i < Lights.Count(); i++)
         {
             var lightPos = Lights[i].Position;
             var farPlane = 25.0f;
+            Matrix4X4<float>[] shadowMatrices = new Matrix4X4<float>[]
+            {
+                Matrix4X4.CreateLookAt(lightPos, lightPos + Vector3D<float>.UnitX, -Vector3D<float>.UnitY) * shadowProj,
+                Matrix4X4.CreateLookAt(lightPos, lightPos - Vector3D<float>.UnitX, -Vector3D<float>.UnitY) * shadowProj,
+                Matrix4X4.CreateLookAt(lightPos, lightPos + Vector3D<float>.UnitY, Vector3D<float>.UnitZ) * shadowProj,
+                Matrix4X4.CreateLookAt(lightPos, lightPos - Vector3D<float>.UnitY, -Vector3D<float>.UnitZ) * shadowProj,
+                Matrix4X4.CreateLookAt(lightPos, lightPos + Vector3D<float>.UnitZ, -Vector3D<float>.UnitY) * shadowProj,
+                Matrix4X4.CreateLookAt(lightPos, lightPos - Vector3D<float>.UnitZ, -Vector3D<float>.UnitY) * shadowProj,
+            };
+            void* data;
+            vk.MapMemory(SCDevice.LogicalDevice, shadowMatricesMemories[i][currentFrame], 0, (ulong) Unsafe.SizeOf<Matrix4X4<float>>() * 6, 0, &data);
+            shadowMatrices.CopyTo(new Span<Matrix4X4<float>>(data, 6));
+            vk.UnmapMemory(SCDevice.LogicalDevice, shadowMatricesMemories[i][currentFrame]);
+
             var pointShadowRenderStage = pointShadowRenderStages[i];
-            var descriptorSet = shadowMatricesDescriptorSet;
+            var descriptorSet = shadowMatricesDescriptorSets[i][currentFrame];
 
             pointShadowRenderStage.BeginCommands(currentFrame);
             var commandBuffer = pointShadowRenderStage.GetCommandBuffer(currentFrame);
@@ -345,9 +351,9 @@ unsafe public partial class VulkanRenderer : IDisposable
             vk.CmdBindDescriptorSets(commandBuffer, PipelineBindPoint.Graphics, pointShadowPipeline.Layout,
                     0, 1, &descriptorSet, 0, default);
             vk.CmdPushConstants(commandBuffer, pointShadowPipeline.Layout,
-                    ShaderStageFlags.GeometryBit | ShaderStageFlags.FragmentBit, 64, (uint) Unsafe.SizeOf<Vector3D<float>>(), &lightPos);
+                    ShaderStageFlags.FragmentBit, 64, (uint) Unsafe.SizeOf<Vector3D<float>>(), &lightPos);
             vk.CmdPushConstants(commandBuffer, pointShadowPipeline.Layout,
-                    ShaderStageFlags.GeometryBit | ShaderStageFlags.FragmentBit, 76, (uint) Unsafe.SizeOf<float>(), &farPlane);
+                    ShaderStageFlags.FragmentBit, 76, (uint) Unsafe.SizeOf<float>(), &farPlane);
 
             foreach (var drawCall in solidModelDrawCalls)
             {
@@ -1087,7 +1093,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                             Height = PointShadowMapResolution };
         DepthCubeMapOnlyAttachment depthAttachments = new(SCDevice, shadowMapExtent);
 
-        RenderStage renderStage = new(SCDevice, pointShadowMapRenderPass, new[] { depthAttachments }, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, pointShadowMapRenderPass, new[] { depthAttachments }, 6, 1, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {

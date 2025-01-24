@@ -353,45 +353,57 @@ unsafe public partial class VulkanRenderer
         return descriptorSets;
     }
 
-    DescriptorSet CreateShadowMatricesDescriptorSet(Buffer shadowMatricesBuffer)
+    DescriptorSet[] CreateShadowMatricesDescriptorSets(Buffer[] shadowMatricesBuffers)
     {
-        DescriptorSet descriptorSet;
-        var layout = uniformBufferDescriptorSetLayout;
+        int setCount = shadowMatricesBuffers.Length; 
+        var descriptorSets = new DescriptorSet[setCount];
 
-        DescriptorSetAllocateInfo allocInfo = new()
+        var layouts = new DescriptorSetLayout[setCount];
+        Array.Fill(layouts, uniformBufferDescriptorSetLayout);
+        
+        fixed (DescriptorSetLayout* layoutsPtr = layouts)
         {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            PSetLayouts = &layout,
-            DescriptorSetCount = 1,
-            DescriptorPool = uniformBufferDescriptorPool
-        };
-
-        if (vk.AllocateDescriptorSets(SCDevice.LogicalDevice, in allocInfo, &descriptorSet) != Result.Success)
-        {
-            throw new Exception("Failed to allocate descripto set!");
+            DescriptorSetAllocateInfo allocInfo = new()
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                PSetLayouts = layoutsPtr,
+                DescriptorSetCount = (uint) layouts.Length,
+                DescriptorPool = uniformBufferDescriptorPool
+            };
+            
+            fixed (DescriptorSet* descriptorSetsPtr = descriptorSets)
+            {
+                if (vk.AllocateDescriptorSets(SCDevice.LogicalDevice, in allocInfo, descriptorSetsPtr) != Result.Success)
+                {
+                    throw new Exception("Failed to allocate descriptor sets!");
+                }
+            }
         }
 
-        DescriptorBufferInfo bufferInfo = new()
+        for (int i = 0; i < setCount; i++)
         {
-            Buffer = shadowMatricesBuffer,
-            Offset = 0,
-            Range = (ulong) Unsafe.SizeOf<Matrix4X4<float>>() * 6
-        };
+            DescriptorBufferInfo bufferInfo = new()
+            {
+                Buffer = shadowMatricesBuffers[i],
+                Offset = 0,
+                Range = (ulong) Unsafe.SizeOf<SceneInfo>()
+            };
 
-        WriteDescriptorSet descriptorWrite = new()
-        {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = descriptorSet,
-            DstBinding = 0,
-            DstArrayElement = 0,
-            DescriptorType = DescriptorType.UniformBuffer,
-            DescriptorCount = 1,
-            PBufferInfo = &bufferInfo
-        };
+            WriteDescriptorSet descriptorWrite = new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.UniformBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &bufferInfo
+            };
 
-        vk.UpdateDescriptorSets(SCDevice.LogicalDevice, 1, ref descriptorWrite, 0, default);
+            vk.UpdateDescriptorSets(SCDevice.LogicalDevice, 1, ref descriptorWrite, 0, default);
+        }
 
-        return descriptorSet;
+        return descriptorSets;
     }
 
     // Material Info Descriptor Set
