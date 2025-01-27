@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Silk.NET.Maths;
 using Silk.NET.Vulkan;
@@ -653,11 +654,12 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateScreenTextureInfoDescriptorSets(ImageView albedo, ImageView normal, ImageView aoRoughnessMetalness, ImageView position)
+    DescriptorSet[] CreateScreenTextureInfoDescriptorSets(GBufferAttachments[] attachments)
     {
-        var descriptorSets = new DescriptorSet[MaxFramesInFlight];
+        int setCount = attachments.Length;
+        var descriptorSets = new DescriptorSet[setCount];
 
-        var layouts = new DescriptorSetLayout[MaxFramesInFlight];
+        var layouts = new DescriptorSetLayout[setCount];
         Array.Fill(layouts, screenTextureDescriptorSetLayout);
         
         fixed (DescriptorSetLayout* layoutsPtr = layouts)
@@ -679,8 +681,13 @@ unsafe public partial class VulkanRenderer
             }
         }
 
-        for (int i = 0; i < MaxFramesInFlight; i++)
+        for (int i = 0; i < setCount; i++)
         {
+            ImageView albedo = attachments[i].Albedo.ImageView;
+            ImageView normal = attachments[i].Normal.ImageView;
+            ImageView aoRoughnessMetalness = attachments[i].AoRoughnessMetalness.ImageView;
+            ImageView position = attachments[i].Position.ImageView;
+
             DescriptorImageInfo albedoInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
@@ -760,10 +767,18 @@ unsafe public partial class VulkanRenderer
         return descriptorSets;
     }
 
-    void UpdateScreenTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView albedo, ImageView normal, ImageView aoRoughnessMetalness, ImageView position)
+    void UpdateScreenTextureDescriptorSets(DescriptorSet[] descriptorSets, GBufferAttachments[] attachments)
     {
-        for (int i = 0; i < MaxFramesInFlight; i++)
+        Debug.Assert(descriptorSets.Length == attachments.Length);
+
+        int setCount = attachments.Length;
+        for (int i = 0; i < setCount; i++)
         {
+            ImageView albedo = attachments[i].Albedo.ImageView;
+            ImageView normal = attachments[i].Normal.ImageView;
+            ImageView aoRoughnessMetalness = attachments[i].AoRoughnessMetalness.ImageView;
+            ImageView position = attachments[i].Position.ImageView;
+
             DescriptorImageInfo albedoInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
@@ -895,8 +910,9 @@ unsafe public partial class VulkanRenderer
         return descriptorPool;
     }
 
-    DescriptorSet[] CreateSingleTextureDescriptorSets(ImageView imageView, Sampler sampler, uint setCount)
+    DescriptorSet[] CreateSingleTextureDescriptorSets(ImageView[] imageViews, Sampler sampler)
     {
+        int setCount = imageViews.Length;
         var descriptorSets = new DescriptorSet[setCount];
 
         var layouts = new DescriptorSetLayout[setCount];
@@ -926,7 +942,7 @@ unsafe public partial class VulkanRenderer
             DescriptorImageInfo colorInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = imageView,
+                ImageView = imageViews[i],
                 Sampler = sampler 
             };
 
@@ -947,14 +963,16 @@ unsafe public partial class VulkanRenderer
         return descriptorSets;
     }
 
-    void UpdateSingleTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView imageView, Sampler sampler)
+    void UpdateSingleTextureDescriptorSets(DescriptorSet[] descriptorSets, ImageView[] imageViews, Sampler sampler)
     {
+        Debug.Assert(descriptorSets.Length == imageViews.Length);
+
         for (int i = 0; i < descriptorSets.Length; i++)
         {
             DescriptorImageInfo colorInfo = new()
             {
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
-                ImageView = imageView,
+                ImageView = imageViews[i],
                 Sampler = sampler
             };
 

@@ -32,7 +32,7 @@ class Program
         // setup window
         var options = WindowOptions.DefaultVulkan with
         {
-            Size = new Vector2D<int>(960, 540),
+            Size = new Vector2D<int>(1920, 1080),
             Title = "Vulkan Renderer"
         };
 
@@ -43,7 +43,6 @@ class Program
         {
             throw new Exception("Windowing platform doesn't support Vulkan");
         }
-        window.VSync = true;
         window.WindowBorder = WindowBorder.Fixed;
 
         window.Render += OnRender;

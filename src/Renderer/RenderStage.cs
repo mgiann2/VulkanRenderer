@@ -17,7 +17,7 @@ unsafe public class RenderStage : IDisposable
     public RenderPass RenderPass { get; }
     public List<ClearValue> ClearValues = new();
 
-    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, uint framebufferCount, uint commandBufferCount)
+    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, uint commandBufferCount)
     {
         vk = VulkanHelper.Vk;
         this.scDevice = scDevice;
@@ -27,6 +27,7 @@ unsafe public class RenderStage : IDisposable
         this.framebufferAttachmentCollections = framebufferAttachmentCollections;
 
         // Create framebuffers
+        uint framebufferCount = (uint) framebufferAttachmentCollections.Length;
         this.framebuffers = new Framebuffer[framebufferCount];
         for (uint i = 0; i < framebufferCount; i++)
         {
@@ -69,7 +70,7 @@ unsafe public class RenderStage : IDisposable
         commandBuffers = tmpCommandBuffers;
     }
 
-    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, uint layerCount, uint framebufferCount, uint commandBufferCount)
+    public RenderStage(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection[] framebufferAttachmentCollections, uint layerCount, uint commandBufferCount)
     {
         vk = VulkanHelper.Vk;
         this.scDevice = scDevice;
@@ -79,6 +80,7 @@ unsafe public class RenderStage : IDisposable
         this.framebufferAttachmentCollections = framebufferAttachmentCollections;
 
         // Create framebuffers
+        uint framebufferCount = (uint) framebufferAttachmentCollections.Length;
         this.framebuffers = new Framebuffer[framebufferCount];
         for (uint i = 0; i < framebufferCount; i++)
         {

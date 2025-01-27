@@ -65,7 +65,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     // TODO: temporary to test lights
     public List<Light> Lights = new List<Light>();
     private RenderStage[] pointShadowRenderStages = new RenderStage[MaxLights];
-    private DepthCubeMapOnlyAttachment[] pointShadowCubeMaps = new DepthCubeMapOnlyAttachment[MaxLights];
+    private DepthCubeMapOnlyAttachment[][] pointShadowCubeMaps = new DepthCubeMapOnlyAttachment[MaxLights][];
     private DescriptorSet[][] shadowMatricesDescriptorSets = new DescriptorSet[MaxLights][];
     private DescriptorSet[][] pointShadowDescriptorSets = new DescriptorSet[MaxLights][];
 
@@ -88,14 +88,14 @@ unsafe public partial class VulkanRenderer : IDisposable
     IWindow window;
     public SCDevice SCDevice;
 
-    GBufferAttachments gBufferAttachments;
-    CompositionAttachments compositionAttachments;
-    BloomAttachments bloomAttachments1;
-    BloomAttachments bloomAttachments2;
+    GBufferAttachments[] gBufferAttachments;
+    CompositionAttachments[] compositionAttachments;
+    BloomAttachments[] bloomAttachments1;
+    BloomAttachments[] bloomAttachments2;
     SwapChainAttachment[] swapChainAttachments;
     SingleColorAttachment[] environmentMapAttachments;
     SingleColorAttachment[] irradianceMapAttachments;
-    DepthOnlyAttachment depthMapAttachment;
+    DepthOnlyAttachment[] depthMapAttachment;
 
     RenderPass pointShadowMapRenderPass;
 
@@ -218,19 +218,16 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         // Create descriptor sets
         sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(sceneInfoBuffers);
-        screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments.Albedo.ImageView,
-                                                                                gBufferAttachments.Normal.ImageView,
-                                                                                gBufferAttachments.AoRoughnessMetalness.ImageView,
-                                                                                gBufferAttachments.Position.ImageView);
-        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Color.ImageView, textureSampler, MaxFramesInFlight);
-        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.ThresholdedColor.ImageView, textureSampler, MaxFramesInFlight);
-        dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Depth.ImageView, shadowSampler, MaxFramesInFlight);
-        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Color.ImageView, bloomSampler, MaxFramesInFlight);
-        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Color.ImageView, bloomSampler, MaxFramesInFlight);
+        screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments);
+        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Select(att => att.Color.ImageView).ToArray(), textureSampler);
+        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Select(att => att.ThresholdedColor.ImageView).ToArray(), textureSampler);
+        dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Select(att => att.Depth.ImageView).ToArray(), shadowSampler);
+        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Select(att => att.Color.ImageView).ToArray(), bloomSampler);
+        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Select(att => att.Color.ImageView).ToArray(), bloomSampler);
         for (int i = 0; i < MaxLights; i++)
         {
             shadowMatricesDescriptorSets[i] = CreateShadowMatricesDescriptorSets(shadowMatricesBuffers[i]);
-            pointShadowDescriptorSets[i] = CreateSingleTextureDescriptorSets(pointShadowCubeMaps[i].Depth.ImageView, shadowSampler, MaxFramesInFlight);
+            pointShadowDescriptorSets[i] = CreateSingleTextureDescriptorSets(pointShadowCubeMaps[i].Select(att => att.Depth.ImageView).ToArray(), shadowSampler);
         }
 
         // Create pipelines
@@ -266,8 +263,8 @@ unsafe public partial class VulkanRenderer : IDisposable
         irradianceCubemap = CreateIrradianceCubemap(skyboxCubemap);
 
         // Create skybox descriptor sets
-        skyboxTextureDescriptorSet = CreateSingleTextureDescriptorSets(skyboxCubemap.CubemapImageView, textureSampler, 1)[0];
-        irradianceMapDescriptorSet = CreateSingleTextureDescriptorSets(irradianceCubemap.CubemapImageView, textureSampler, 1)[0];
+        skyboxTextureDescriptorSet = CreateSingleTextureDescriptorSets(new ImageView[]{ skyboxCubemap.CubemapImageView }, textureSampler)[0];
+        irradianceMapDescriptorSet = CreateSingleTextureDescriptorSets(new ImageView[]{ irradianceCubemap.CubemapImageView }, textureSampler)[0];
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -310,9 +307,9 @@ unsafe public partial class VulkanRenderer : IDisposable
     {
         if (!isFrameEnded) throw new Exception("Tried to end frame before beginning a new one!");
 
+        List<CommandBuffer> geomCommandBuffers = new();
         // Generate point shadow maps
         // --------------------------
-        List<CommandBuffer> geomCommandBuffers = new();
         Matrix4X4<float> shadowProj = Matrix4X4.CreatePerspectiveFieldOfView(MathF.PI / 2.0f, 1.0f, 1.0f, 25.0f);
         for (int i = 0; i < Lights.Count(); i++)
         {
@@ -337,7 +334,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
             pointShadowRenderStage.BeginCommands(currentFrame);
             var commandBuffer = pointShadowRenderStage.GetCommandBuffer(currentFrame);
-            pointShadowRenderStage.BeginRenderPass(currentFrame, 0);
+            pointShadowRenderStage.BeginRenderPass(currentFrame, currentFrame);
 
             vk.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, pointShadowPipeline.Pipeline);
 
@@ -368,7 +365,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         // --------------------------
         var geometryCommandBuffer = geometryRenderStage.GetCommandBuffer(currentFrame);
         geometryRenderStage.BeginCommands(currentFrame);
-        geometryRenderStage.BeginRenderPass(currentFrame, 0);
+        geometryRenderStage.BeginRenderPass(currentFrame, currentFrame);
         
         vk.CmdBindPipeline(geometryCommandBuffer, PipelineBindPoint.Graphics, geometryPipeline.Pipeline);
 
@@ -395,7 +392,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Begin directional light shadow render pass
         // ------------------------------------------
         depthMapRenderStage.BeginCommands(currentFrame);
-        depthMapRenderStage.BeginRenderPass(currentFrame, 0);
+        depthMapRenderStage.BeginRenderPass(currentFrame, currentFrame);
         var depthMapCommandBuffer = depthMapRenderStage.GetCommandBuffer(currentFrame);
 
         // draw depth map of directional light
@@ -419,7 +416,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Begin composition render pass
         // -----------------------------
         compositionRenderStage.BeginCommands(currentFrame);
-        compositionRenderStage.BeginRenderPass(currentFrame, 0);
+        compositionRenderStage.BeginRenderPass(currentFrame, currentFrame);
         var compositionCommandBuffer = compositionRenderStage.GetCommandBuffer(currentFrame);
 
         // draw skybox
@@ -491,7 +488,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Begin bloom render passes
         // -------------------------
         bloomRenderStage1.BeginCommands(currentFrame);
-        bloomRenderStage1.BeginRenderPass(currentFrame, 0);
+        bloomRenderStage1.BeginRenderPass(currentFrame, currentFrame);
         var bloom1CommandBuffer = bloomRenderStage1.GetCommandBuffer(currentFrame);
 
         var bloom1DescriptorSet = stackalloc[] { thresholdTextureDescriptorSets[currentFrame] };
@@ -510,7 +507,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         bloomRenderStage1.EndCommands(currentFrame);
 
         bloomRenderStage2.BeginCommands(currentFrame);
-        bloomRenderStage2.BeginRenderPass(currentFrame, 0);
+        bloomRenderStage2.BeginRenderPass(currentFrame, currentFrame);
         var bloom2CommandBuffer = bloomRenderStage2.GetCommandBuffer(currentFrame);
 
         var bloom2DescriptorSet = stackalloc[] { bloomPass1OutputTextureDescriptorSets[currentFrame] };
@@ -669,7 +666,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
         DescriptorSet[] sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(uniformBuffers);
         var skyboxTexture = new Texture(SCDevice, SkyboxTexturePath);
-        DescriptorSet equirectangularMapDescriptorSet = CreateSingleTextureDescriptorSets(skyboxTexture.TextureImageView, textureSampler, 1)[0];
+        DescriptorSet equirectangularMapDescriptorSet = CreateSingleTextureDescriptorSets(new ImageView[]{ skyboxTexture.TextureImageView }, textureSampler)[0];
 
         // Begin equirectangular to cubemap render pass
         equirectangularToCubemapRenderStage.ResetCommandBuffer(0);
@@ -750,7 +747,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         }
         DescriptorSet[] sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(uniformBuffers);
 
-        var environmentMapDescriptorSet = CreateSingleTextureDescriptorSets(environmentCubemap.CubemapImageView, textureSampler, 1)[0];
+        var environmentMapDescriptorSet = CreateSingleTextureDescriptorSets(new ImageView[]{ environmentCubemap.CubemapImageView }, textureSampler)[0];
 
         // Begin irradiance map render pass
         irradianceMapRenderStage.ResetCommandBuffer(0);
@@ -835,34 +832,66 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         SCDevice.RecreateSwapchain(window);
 
+        // Create render stages
         (geometryRenderStage, gBufferAttachments) = CreateGeometryRenderStage();
         (compositionRenderStage, compositionAttachments) = CreateCompositionRenderStage();
         (bloomRenderStage1, bloomAttachments1) = CreateBloomRenderStage();
+        (bloomRenderStage2, bloomAttachments2) = CreateBloomRenderStage();
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
+        (equirectangularToCubemapRenderStage, environmentMapAttachments) = CreateEquirectangularToCubemapRenderStage();
+        (irradianceMapRenderStage, irradianceMapAttachments) = CreateIrradianceMapRenderStage();
+        (depthMapRenderStage, depthMapAttachment) = CreateDepthMapRenderStage();
+        RenderPassBuilder renderPassBuilder = new(SCDevice);
+        renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice), ImageLayout.ShaderReadOnlyOptimal);
+        pointShadowMapRenderPass = renderPassBuilder.Build();
+        for (int i = 0; i < pointShadowRenderStages.Length; i++)
+        {
+            (pointShadowRenderStages[i], pointShadowCubeMaps[i]) = CreatePointShadowRenderStage(); 
+        }
 
-        UpdateScreenTextureDescriptorSets(screenTextureInfoDescriptorSets, gBufferAttachments.Albedo.ImageView,
-                                                                           gBufferAttachments.Normal.ImageView,
-                                                                           gBufferAttachments.AoRoughnessMetalness.ImageView,
-                                                                           gBufferAttachments.Position.ImageView);
-        UpdateSingleTextureDescriptorSets(compositionOutputTextureDescriptorSets, compositionAttachments.Color.ImageView, textureSampler);
+        // Create descriptor sets
+        sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(sceneInfoBuffers);
+        screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments);
+        compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Select(att => att.Color.ImageView).ToArray(), textureSampler);
+        thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Select(att => att.ThresholdedColor.ImageView).ToArray(), textureSampler);
+        dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Select(att => att.Depth.ImageView).ToArray(), shadowSampler);
+        bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Select(att => att.Color.ImageView).ToArray(), bloomSampler);
+        bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Select(att => att.Color.ImageView).ToArray(), bloomSampler);
+        for (int i = 0; i < MaxLights; i++)
+        {
+            shadowMatricesDescriptorSets[i] = CreateShadowMatricesDescriptorSets(shadowMatricesBuffers[i]);
+            pointShadowDescriptorSets[i] = CreateSingleTextureDescriptorSets(pointShadowCubeMaps[i].Select(att => att.Depth.ImageView).ToArray(), shadowSampler);
+        }
 
+        // Create pipelines
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
         compositionPipeline = CreateCompositionPipeline(compositionRenderStage.RenderPass);
         lightingPipeline = CreateLightingPipeline(compositionRenderStage.RenderPass);
+        solidColorPipeine = CreateSolidColorPipeline(compositionRenderStage.RenderPass);
         skyboxPipeline = CreateSkyboxPipeline(compositionRenderStage.RenderPass);
+        bloom1Pipeline = CreateBloomPipeline(bloomRenderStage1.RenderPass);
+        bloom2Pipeline = CreateBloomPipeline(bloomRenderStage2.RenderPass);
         postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
+        equirectangularToCubemapPipeline = CreateEquirectangularToCubemapPipeline(equirectangularToCubemapRenderStage.RenderPass);
+        irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
+        depthPipeline = CreateDepthPipeline(depthMapRenderStage.RenderPass);
+        pointShadowPipeline = CreatePointShadowPipeline(pointShadowMapRenderPass);
     }
 
-    (RenderStage, GBufferAttachments) CreateGeometryRenderStage()
+    (RenderStage, GBufferAttachments[]) CreateGeometryRenderStage()
     {
-        GBufferAttachments gBufferAttachments = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        GBufferAttachments[] gBufferAttachments = new GBufferAttachments[MaxFramesInFlight];
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            gBufferAttachments[i] = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        }
 
         RenderPassBuilder renderPassBuilder = new(SCDevice);
-        renderPassBuilder.AddColorAttachment(gBufferAttachments.Albedo.Format, ImageLayout.ShaderReadOnlyOptimal)
-                         .AddColorAttachment(gBufferAttachments.Normal.Format, ImageLayout.ShaderReadOnlyOptimal)
-                         .AddColorAttachment(gBufferAttachments.AoRoughnessMetalness.Format, ImageLayout.ShaderReadOnlyOptimal)
-                         .AddColorAttachment(gBufferAttachments.Position.Format, ImageLayout.ShaderReadOnlyOptimal)
-                         .SetDepthStencilAttachment(gBufferAttachments.Depth.Format)
+        renderPassBuilder.AddColorAttachment(gBufferAttachments[0].Albedo.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(gBufferAttachments[0].Normal.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(gBufferAttachments[0].AoRoughnessMetalness.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(gBufferAttachments[0].Position.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .SetDepthStencilAttachment(gBufferAttachments[0].Depth.Format)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.BottomOfPipeBit, PipelineStageFlags.ColorAttachmentOutputBit,
                                         AccessFlags.MemoryReadBit, AccessFlags.ColorAttachmentReadBit | AccessFlags.ColorAttachmentWriteBit,
@@ -873,7 +902,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.ByRegionBit);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ gBufferAttachments }, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, gBufferAttachments, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -888,14 +917,18 @@ unsafe public partial class VulkanRenderer : IDisposable
         return (renderStage, gBufferAttachments);
     }
 
-    (RenderStage, CompositionAttachments) CreateCompositionRenderStage()
+    (RenderStage, CompositionAttachments[]) CreateCompositionRenderStage()
     {
-        CompositionAttachments compositionAttachments = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        CompositionAttachments[] compositionAttachments = new CompositionAttachments[MaxFramesInFlight];
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            compositionAttachments[i] = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        }
 
         RenderPassBuilder renderPassBuilder = new(SCDevice);
-        renderPassBuilder.AddColorAttachment(compositionAttachments.Color.Format, ImageLayout.ShaderReadOnlyOptimal)
-                         .AddColorAttachment(compositionAttachments.ThresholdedColor.Format, ImageLayout.ShaderReadOnlyOptimal)
-                         .SetDepthStencilAttachment(compositionAttachments.Depth.Format)
+        renderPassBuilder.AddColorAttachment(compositionAttachments[0].Color.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .AddColorAttachment(compositionAttachments[0].ThresholdedColor.Format, ImageLayout.ShaderReadOnlyOptimal)
+                         .SetDepthStencilAttachment(compositionAttachments[0].Depth.Format)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
@@ -907,7 +940,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ compositionAttachments }, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, compositionAttachments, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -920,12 +953,16 @@ unsafe public partial class VulkanRenderer : IDisposable
         return (renderStage, compositionAttachments);
     }
 
-    (RenderStage, BloomAttachments) CreateBloomRenderStage()
+    (RenderStage, BloomAttachments[]) CreateBloomRenderStage()
     {
-        BloomAttachments bloomAttachments = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        BloomAttachments[] bloomAttachments = new BloomAttachments[MaxFramesInFlight];
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            bloomAttachments[i] = new(SCDevice, SCDevice.SwapchainInfo.Extent);
+        }
 
         RenderPassBuilder renderPassBuilder = new(SCDevice);
-        renderPassBuilder.AddColorAttachment(bloomAttachments.Color.Format, ImageLayout.ShaderReadOnlyOptimal)
+        renderPassBuilder.AddColorAttachment(bloomAttachments[0].Color.Format, ImageLayout.ShaderReadOnlyOptimal)
                          .AddDependency(Vk.SubpassExternal, 0,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
                                         PipelineStageFlags.EarlyFragmentTestsBit | PipelineStageFlags.LateFragmentTestsBit,
@@ -937,7 +974,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[]{ bloomAttachments }, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, bloomAttachments, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
@@ -970,7 +1007,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, (uint) swapchainImageCount, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, swapChainAttachments, MaxFramesInFlight);
 
         var clearColors = new ClearValue[] 
         { 
@@ -995,7 +1032,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -1021,7 +1058,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, 6, 1);
+        RenderStage renderStage = new(SCDevice, renderPass, cubefaceAttachments, 1);
 
         var clearColors = new ClearValue[]
         {
@@ -1033,10 +1070,14 @@ unsafe public partial class VulkanRenderer : IDisposable
         return (renderStage, cubefaceAttachments);
     }
 
-    (RenderStage, DepthOnlyAttachment) CreateDepthMapRenderStage()
+    (RenderStage, DepthOnlyAttachment[]) CreateDepthMapRenderStage()
     {
         var shadowMapExtent = new Extent2D{ Width = ShadowMapResolution, Height = ShadowMapResolution };
-        DepthOnlyAttachment depthAttachments = new(SCDevice, shadowMapExtent);
+        DepthOnlyAttachment[] depthAttachments = new DepthOnlyAttachment[MaxFramesInFlight];
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            depthAttachments[i] = new(SCDevice, shadowMapExtent);
+        }
         
         RenderPassBuilder renderPassBuilder = new(SCDevice);
         renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice), ImageLayout.ShaderReadOnlyOptimal)
@@ -1051,7 +1092,7 @@ unsafe public partial class VulkanRenderer : IDisposable
                                         DependencyFlags.None);
         RenderPass renderPass = renderPassBuilder.Build();
 
-        RenderStage renderStage = new(SCDevice, renderPass, new[] { depthAttachments }, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, renderPass, depthAttachments, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
@@ -1062,13 +1103,17 @@ unsafe public partial class VulkanRenderer : IDisposable
         return (renderStage, depthAttachments);
     }
 
-    (RenderStage, DepthCubeMapOnlyAttachment) CreatePointShadowRenderStage()
+    (RenderStage, DepthCubeMapOnlyAttachment[]) CreatePointShadowRenderStage()
     {
         var shadowMapExtent = new Extent2D{ Width = PointShadowMapResolution,
                                             Height = PointShadowMapResolution };
-        DepthCubeMapOnlyAttachment depthAttachments = new(SCDevice, shadowMapExtent);
+        DepthCubeMapOnlyAttachment[] depthAttachments = new DepthCubeMapOnlyAttachment[MaxFramesInFlight];
+        for (int i = 0; i < MaxFramesInFlight; i++)
+        {
+            depthAttachments[i] = new(SCDevice, shadowMapExtent);
+        }
 
-        RenderStage renderStage = new(SCDevice, pointShadowMapRenderPass, new[] { depthAttachments }, 6, 1, MaxFramesInFlight);
+        RenderStage renderStage = new(SCDevice, pointShadowMapRenderPass, depthAttachments, 6, MaxFramesInFlight);
 
         var clearColors = new ClearValue[]
         {
