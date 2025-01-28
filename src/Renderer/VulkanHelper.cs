@@ -260,6 +260,29 @@ unsafe public static class VulkanHelper
         return fences;
     }
 
+    public static Framebuffer CreateFramebuffer(SCDevice scDevice, RenderPass renderPass, IFramebufferAttachmentCollection attachmentCollection, uint layerCount = 1)
+    {
+        var attachments = attachmentCollection.Attachments;
+        FramebufferCreateInfo createInfo = new()
+        {
+            SType = StructureType.FramebufferCreateInfo,
+            AttachmentCount = (uint) attachments.Length,
+            RenderPass = renderPass,
+            Width = attachmentCollection.ImageExtent.Width,
+            Height = attachmentCollection.ImageExtent.Height,
+            Layers = layerCount
+        };
+        fixed (ImageView* pAttachments = attachments)
+            createInfo.PAttachments = pAttachments;
+
+        if (Vk.CreateFramebuffer(scDevice.LogicalDevice, in createInfo, null, out var framebuffer) != Result.Success)
+        {
+            throw new Exception("Failed to create framebuffer!");
+        }
+
+        return framebuffer;
+    }
+
     public static (Image, DeviceMemory) CreateImage(SCDevice scDevice, 
             uint width, uint height, Format format, ImageTiling tiling,
             ImageUsageFlags usage, MemoryPropertyFlags properties)

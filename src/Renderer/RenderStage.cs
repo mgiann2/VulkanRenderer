@@ -31,23 +31,7 @@ unsafe public class RenderStage : IDisposable
         this.framebuffers = new Framebuffer[framebufferCount];
         for (uint i = 0; i < framebufferCount; i++)
         {
-            var attachments = framebufferAttachmentCollections[i].Attachments;
-            FramebufferCreateInfo framebufferInfo = new()
-            {
-                SType = StructureType.FramebufferCreateInfo,
-                AttachmentCount = (uint) attachments.Length,
-                RenderPass = renderPass,
-                Width = extent.Width,
-                Height = extent.Height,
-                Layers = 1
-            };
-            fixed (ImageView* attachmentsPtr = attachments)
-                framebufferInfo.PAttachments = attachmentsPtr;
-
-            if (vk.CreateFramebuffer(scDevice.LogicalDevice, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
-            {
-                throw new Exception("Failed to create framebuffer!");
-            }
+            framebuffers[i] = VulkanHelper.CreateFramebuffer(scDevice, renderPass, framebufferAttachmentCollections[i]);
         }
 
         // Create command buffers
@@ -84,23 +68,7 @@ unsafe public class RenderStage : IDisposable
         this.framebuffers = new Framebuffer[framebufferCount];
         for (uint i = 0; i < framebufferCount; i++)
         {
-            var attachments = framebufferAttachmentCollections[i].Attachments;
-            FramebufferCreateInfo framebufferInfo = new()
-            {
-                SType = StructureType.FramebufferCreateInfo,
-                AttachmentCount = (uint) attachments.Length,
-                RenderPass = renderPass,
-                Width = extent.Width,
-                Height = extent.Height,
-                Layers = layerCount
-            };
-            fixed (ImageView* attachmentsPtr = attachments)
-                framebufferInfo.PAttachments = attachmentsPtr;
-
-            if (vk.CreateFramebuffer(scDevice.LogicalDevice, in framebufferInfo, null, out framebuffers[i]) != Result.Success)
-            {
-                throw new Exception("Failed to create framebuffer!");
-            }
+            framebuffers[i] = VulkanHelper.CreateFramebuffer(scDevice, renderPass, framebufferAttachmentCollections[i], layerCount);
         }
 
         // Create command buffers
