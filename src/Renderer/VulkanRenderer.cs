@@ -95,6 +95,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     SwapChainAttachment[] swapChainAttachments;
     SingleColorAttachment[] environmentMapAttachments;
     SingleColorAttachment[] irradianceMapAttachments;
+    SingleColorAttachment brdfLUTAttachment;
     DepthOnlyAttachment[] depthMapAttachment;
 
     RenderPass pointShadowMapRenderPass;
@@ -106,6 +107,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     RenderStage postProcessRenderStage;
     RenderStage equirectangularToCubemapRenderStage;
     RenderStage irradianceMapRenderStage;
+    RenderStage brdfLUTTextureRenderStage;
     RenderStage depthMapRenderStage;
 
     Buffer[] sceneInfoBuffers;
@@ -143,6 +145,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     GraphicsPipeline postProcessPipeline;
     GraphicsPipeline equirectangularToCubemapPipeline;
     GraphicsPipeline irradianceMapPipeline;
+    GraphicsPipeline brdfPipeline;
     GraphicsPipeline depthPipeline;
     GraphicsPipeline pointShadowPipeline;
 
@@ -207,6 +210,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
         (equirectangularToCubemapRenderStage, environmentMapAttachments) = CreateEquirectangularToCubemapRenderStage();
         (irradianceMapRenderStage, irradianceMapAttachments) = CreateIrradianceMapRenderStage();
+        (brdfLUTTextureRenderStage, brdfLUTAttachment) = CreateBRDFLUTTextureRenderStage();
         (depthMapRenderStage, depthMapAttachment) = CreateDepthMapRenderStage();
         RenderPassBuilder renderPassBuilder = new(SCDevice);
         renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice), ImageLayout.ShaderReadOnlyOptimal);
@@ -241,6 +245,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
         equirectangularToCubemapPipeline = CreateEquirectangularToCubemapPipeline(equirectangularToCubemapRenderStage.RenderPass);
         irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
+        brdfPipeline = CreateBRDFLUTPipeline(brdfLUTTextureRenderStage.RenderPass);
         depthPipeline = CreateDepthPipeline(depthMapRenderStage.RenderPass);
         pointShadowPipeline = CreatePointShadowPipeline(pointShadowMapRenderPass);
 
@@ -258,7 +263,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         cubeMesh = PrimitiveMesh.CreateCubeMesh(this);
         sphereMesh = new Mesh(this, SphereMeshPath);
 
-        // Generate irradiance cubemap
+        // Generate image based lighting textures
         skyboxCubemap = CreateSkyboxCubemap();
         irradianceCubemap = CreateIrradianceCubemap(skyboxCubemap);
 
@@ -798,6 +803,31 @@ unsafe public partial class VulkanRenderer : IDisposable
         return irradianceMap;
     }
 
+    ImageView CreateBRDFLUTTexture()
+    {
+        var commandBuffer = brdfLUTTextureRenderStage.GetCommandBuffer(0);
+        brdfLUTTextureRenderStage.BeginCommands(0);
+        brdfLUTTextureRenderStage.BeginRenderPass(0, 0);
+
+        vk.CmdBindPipeline(commandBuffer, PipelineBindPoint.Graphics, brdfPipeline.Pipeline);
+        screenQuadMesh.Bind(commandBuffer);
+
+        screenQuadMesh.Draw(commandBuffer);
+
+        brdfLUTTextureRenderStage.EndRenderPass(0);
+        brdfLUTTextureRenderStage.EndCommands(0);
+
+        var submitInfo = CreateGraphicsSubmitInfo(new[] { commandBuffer },
+                                                  new Semaphore[]{}, new Semaphore[]{});
+        if (vk.QueueSubmit(SCDevice.GraphicsQueue, 1, &submitInfo, default) != Result.Success)
+        {
+            throw new Exception("Failed to submit graphics queue!");
+        }
+        vk.QueueWaitIdle(SCDevice.GraphicsQueue);
+
+        return brdfLUTAttachment.Color.ImageView;
+    }
+
     void CleanupSwapchainObjects()
     {
         vk.DestroyPipeline(SCDevice.LogicalDevice, postProcessPipeline.Pipeline, null);
@@ -1068,6 +1098,28 @@ unsafe public partial class VulkanRenderer : IDisposable
         renderStage.ClearValues.AddRange(clearColors);
 
         return (renderStage, cubefaceAttachments);
+    }
+
+    (RenderStage, SingleColorAttachment) CreateBRDFLUTTextureRenderStage()
+    {
+        SingleColorAttachment brdfLUTAttachment =  new(SCDevice, Format.R16G16Sfloat, new Extent2D(512, 512));
+
+        RenderPassBuilder renderPassBuilder = new(SCDevice);
+        renderPassBuilder.AddColorAttachment(Format.R16G16Sfloat, ImageLayout.ShaderReadOnlyOptimal)
+                         .SetDepthStencilAttachment(brdfLUTAttachment.Depth.Format);
+
+        RenderPass renderPass = renderPassBuilder.Build();
+
+        RenderStage renderStage = new(SCDevice, renderPass, new[]{ brdfLUTAttachment }, 1);
+
+        var clearColors = new ClearValue[]
+        {
+            new() { Color = { Float32_0 = 0.0f, Float32_1 = 0.0f, Float32_2 = 0.0f, Float32_3 = 1.0f } },
+            new() { DepthStencil = { Depth = 1.0f, Stencil = 0 } }
+        };
+        renderStage.ClearValues.AddRange(clearColors);
+
+        return (renderStage, brdfLUTAttachment);
     }
 
     (RenderStage, DepthOnlyAttachment[]) CreateDepthMapRenderStage()

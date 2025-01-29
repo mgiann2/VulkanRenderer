@@ -41,6 +41,9 @@ unsafe public partial class VulkanRenderer
     const string IrradianceMapVertexShaderFilename = "cubemap.vert.spv";
     const string IrradianceMapFragmentShaderFilename = "irradiance.frag.spv";
 
+    const string BRDFLUTTextureVertexShaderFilename = "brdf.vert.spv";
+    const string BRDFLUTTextureFragmentShaderFilename = "brdf.frag.spv";
+
     const string DepthVertexShaderFilename = "depth.vert.spv";
     const string DepthFragmentShaderFilename = "depth.frag.spv";
 
@@ -210,6 +213,21 @@ unsafe public partial class VulkanRenderer
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);    
+    }
+
+    GraphicsPipeline CreateBRDFLUTPipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + BRDFLUTTextureVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + BRDFLUTTextureFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(SCDevice);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(1)
+                       .SetDepthStencilInfo(true, true, CompareOp.Less);
+
+        return pipelineBuilder.Build(renderPass, 0);
     }
 
     GraphicsPipeline CreateDepthPipeline(RenderPass renderPass)
