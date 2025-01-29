@@ -352,16 +352,16 @@ unsafe public static class VulkanHelper
         return imageView;
     }
 
-    public static (Image, DeviceMemory) CreateCubemapImage(SCDevice scDevice, 
-            uint width, uint height, Format format, ImageTiling tiling,
-            ImageUsageFlags usage, MemoryPropertyFlags properties)
+    public static (Image, DeviceMemory) CreateCubemapImage(SCDevice scDevice, Format format,
+            ImageTiling tiling, ImageUsageFlags usage, MemoryPropertyFlags properties,
+            uint width, uint height, uint mipLevels = 1)
     {
         ImageCreateInfo imageInfo = new()
         {
             SType = StructureType.ImageCreateInfo,
             ImageType = ImageType.Type2D,
             Extent = new() { Width = width, Height = height, Depth = 1 },
-            MipLevels = 1,
+            MipLevels = mipLevels,
             ArrayLayers = 6,
             Format = format,
             Tiling = tiling,

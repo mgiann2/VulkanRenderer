@@ -184,10 +184,10 @@ unsafe public class SCDevice : IDisposable
         Image dstImage;
         DeviceMemory dstImageMemory;
         (dstImage, dstImageMemory) = VulkanHelper.CreateCubemapImage(this,
-                                                               imageExtent.Width, imageExtent.Width,
                                                                Format.R16G16B16A16Sfloat, ImageTiling.Optimal,
                                                                ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
-                                                               MemoryPropertyFlags.DeviceLocalBit);
+                                                               MemoryPropertyFlags.DeviceLocalBit,
+                                                               imageExtent.Width, imageExtent.Width);
 
         TransitionImageLayout(dstImage, Format.R16G16B16A16Sfloat, ImageLayout.Undefined, ImageLayout.TransferDstOptimal, 6);
 

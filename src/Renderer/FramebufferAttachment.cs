@@ -90,9 +90,9 @@ unsafe public class CubeMapImageAttachment : IFramebufferAttachment, IDisposable
             aspectFlags = ImageAspectFlags.DepthBit;
         }
 
-        (Image, ImageMemory) = VulkanHelper.CreateCubemapImage(scDevice,
-                (uint) imageExtent.Width, (uint) imageExtent.Height,
-                format, ImageTiling.Optimal, usage | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit);
+        (Image, ImageMemory) = VulkanHelper.CreateCubemapImage(scDevice, format,
+                ImageTiling.Optimal, usage | ImageUsageFlags.SampledBit, MemoryPropertyFlags.DeviceLocalBit,
+                (uint) imageExtent.Width, (uint) imageExtent.Height);
 
         Format = format;
         ImageView = VulkanHelper.CreateCubemapImageView(scDevice, Image, format, aspectFlags);
