@@ -102,7 +102,7 @@ unsafe public class SCDevice : IDisposable
         SwapchainInfo = CreateSwapchain(window);
     }
 
-    public void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout, uint layers = 1)
+    public void TransitionImageLayout(Image image, Format format, ImageLayout oldLayout, ImageLayout newLayout, uint layers = 1, uint mipLevels = 1)
     {
         var commandBuffer = BeginSingleTimeCommand();
 
@@ -118,7 +118,7 @@ unsafe public class SCDevice : IDisposable
             {
                 AspectMask = ImageAspectFlags.ColorBit,
                 BaseMipLevel = 0,
-                LevelCount = 1,
+                LevelCount = mipLevels,
                 BaseArrayLayer = 0,
                 LayerCount = layers
             },

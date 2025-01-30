@@ -44,6 +44,9 @@ unsafe public partial class VulkanRenderer
     const string BRDFLUTTextureVertexShaderFilename = "brdf.vert.spv";
     const string BRDFLUTTextureFragmentShaderFilename = "brdf.frag.spv";
 
+    const string PrefilterTextureVertexShaderFilename = "cubemap.vert.spv";
+    const string PrefilterTextureFragmentShaderFilename = "prefilter.frag.spv";
+
     const string DepthVertexShaderFilename = "depth.vert.spv";
     const string DepthFragmentShaderFilename = "depth.frag.spv";
 
@@ -226,6 +229,24 @@ unsafe public partial class VulkanRenderer
                        .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
                        .SetColorBlendingNone(1)
                        .SetDepthStencilInfo(true, true, CompareOp.Less);
+
+        return pipelineBuilder.Build(renderPass, 0);
+    }
+
+    GraphicsPipeline CreatePrefilterPipeline(RenderPass renderPass)
+    {
+        byte[] vertexShaderCode = File.ReadAllBytes(ShadersPath + PrefilterTextureVertexShaderFilename);
+        byte[] fragmentShaderCode = File.ReadAllBytes(ShadersPath + PrefilterTextureFragmentShaderFilename);
+
+        GraphicsPipelineBuilder pipelineBuilder = new(SCDevice);
+        pipelineBuilder.SetShaders(vertexShaderCode, fragmentShaderCode)
+                       .SetInputAssemblyInfo(PrimitiveTopology.TriangleList, false)
+                       .SetRasterizerInfo(PolygonMode.Fill, CullModeFlags.BackBit, FrontFace.CounterClockwise)
+                       .SetColorBlendingNone(CubemapColorAttachmentCount)
+                       .SetDepthStencilInfo(true, true, CompareOp.Less)
+                       .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
+                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout)
+                       .AddPushConstantRange((uint) Unsafe.SizeOf<float>(), 0, ShaderStageFlags.FragmentBit);
 
         return pipelineBuilder.Build(renderPass, 0);
     }
