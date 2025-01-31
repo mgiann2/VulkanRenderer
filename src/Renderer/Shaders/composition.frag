@@ -5,6 +5,8 @@ layout (set = 1, binding = 1) uniform sampler2D normalSampler;
 layout (set = 1, binding = 2) uniform sampler2D aoRoughnessMetalnessSampler;
 layout (set = 1, binding = 3) uniform sampler2D positionSampler;
 layout (set = 2, binding = 0) uniform samplerCube irradianceMap;
+layout (set = 2, binding = 1) uniform sampler2D brdfLUT;
+layout (set = 2, binding = 2) uniform samplerCube prefilteredMap;
 layout (set = 3, binding = 0) uniform sampler2D directionalShadowMap;
 
 layout (location = 0) in vec3 inCameraPos;
@@ -49,6 +51,7 @@ void main() {
 
     vec3 N = normalize(normal);
     vec3 V = normalize(inCameraPos - pos);
+    vec3 R = reflect(-V, N);
 
     // compute directional light
     vec3 Lo = vec3(0.0);
@@ -66,7 +69,7 @@ void main() {
 
         vec3 kS = fresnel;
         vec3 kD = vec3(1.0) - kS;
-        // kD *= 1.0 - metalness;
+        kD *= 1.0 - metalness;
 
         float NdotV = max(dot(N, V), 0.0);
         float NdotL = max(dot(N, L), 0.0);
@@ -79,13 +82,20 @@ void main() {
 
     // compute ambient light
     {
-        vec3 irradiance = texture(irradianceMap, N).rgb;
-
-        vec3 kS = FresnelSchlick(max(dot(N, V), 0.0), F0);
+        vec3 F = FresnelSchlick(max(dot(N, V), 0.0), F0);
+        vec3 kS = F;
         vec3 kD = 1.0 - kS;
-        // kD *= 1.0 - metalness;
+        kD *= 1.0 - metalness;
+
+        vec3 irradiance = texture(irradianceMap, N).rgb;
         vec3 diffuse = irradiance * albedo;
-        vec3 ambient = (kD * diffuse) * ao;
+        
+        const float MAX_REFLECTION_LOD = 4.0;
+        vec3 prefilteredColor = textureLod(prefilteredMap, R, roughness * MAX_REFLECTION_LOD).rgb;
+        vec2 brdf = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+        vec3 specular = prefilteredColor * (F * brdf.x * brdf.y);
+
+        vec3 ambient = (kD * diffuse + specular) * ao;
 
         Lo += ambient;
     }

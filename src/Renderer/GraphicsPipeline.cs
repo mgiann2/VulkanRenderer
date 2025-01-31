@@ -91,7 +91,7 @@ unsafe public partial class VulkanRenderer
                        .SetDepthStencilInfo(false, false, CompareOp.Less)
                        .AddDescriptorSetLayout(uniformBufferDescriptorSetLayout)
                        .AddDescriptorSetLayout(screenTextureDescriptorSetLayout)
-                       .AddDescriptorSetLayout(singleTextureDescriptorSetLayout)
+                       .AddDescriptorSetLayout(iblTexturesDescriptorSetLayout)
                        .AddDescriptorSetLayout(singleTextureDescriptorSetLayout);
 
         return pipelineBuilder.Build(renderPass, 0);
@@ -893,6 +893,160 @@ unsafe public partial class VulkanRenderer
             fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
                 vk.UpdateDescriptorSets(SCDevice.LogicalDevice, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
         }
+    }
+
+    // IBL Textures Descriptor Set
+    // ---------------------------
+
+    DescriptorSetLayout CreateIBLTexturesDescriptorSetLayout()
+    {
+        DescriptorSetLayoutBinding irradianceSamplerBinding = new()
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImmutableSamplers = default,
+            StageFlags = ShaderStageFlags.FragmentBit
+        };
+
+        DescriptorSetLayoutBinding brdfLUTSamplerBinding = new()
+        {
+            Binding = 1,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImmutableSamplers = default,
+            StageFlags = ShaderStageFlags.FragmentBit
+        };
+
+        DescriptorSetLayoutBinding prefilteredMapSamplerBinding = new()
+        {
+            Binding = 2,
+            DescriptorType = DescriptorType.CombinedImageSampler,
+            DescriptorCount = 1,
+            PImmutableSamplers = default,
+            StageFlags = ShaderStageFlags.FragmentBit
+        };
+
+        var bindings = stackalloc[] { irradianceSamplerBinding, brdfLUTSamplerBinding, prefilteredMapSamplerBinding };
+
+        DescriptorSetLayoutCreateInfo layoutInfo = new()
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 3,
+            PBindings = bindings
+        };
+
+        if (vk.CreateDescriptorSetLayout(SCDevice.LogicalDevice, in layoutInfo, null, out var layout) != Result.Success)
+        {
+            throw new Exception("Failed to create descriptor set layout!");
+        }
+
+        return layout;
+    }
+
+    DescriptorPool CreateIBLTexturesDescriptorPool()
+    {
+        DescriptorPoolSize poolSize = new()
+        {
+            Type = DescriptorType.CombinedImageSampler,
+            DescriptorCount = (uint) 3
+        };
+
+        DescriptorPoolCreateInfo poolInfo = new()
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            PoolSizeCount = 1,
+            PPoolSizes = &poolSize,
+            MaxSets = 1
+        };
+
+        if (vk.CreateDescriptorPool(SCDevice.LogicalDevice, in poolInfo, null, out var descriptorPool) != Result.Success)
+        {
+            throw new Exception("Failed to create descriptor pool!");
+        }
+
+        return descriptorPool;
+    }
+
+    DescriptorSet CreateIBLTexturesDescriptorSet(ImageView irradianceMap,
+                                                  ImageView brdfLUT,
+                                                  ImageView prefilteredMap)
+    {
+        DescriptorSet descriptorSet;
+        DescriptorSetLayout layout = iblTexturesDescriptorSetLayout;
+        
+        DescriptorSetAllocateInfo allocInfo = new()
+        {
+            SType = StructureType.DescriptorSetAllocateInfo,
+            PSetLayouts = &layout,
+            DescriptorSetCount = 1,
+            DescriptorPool = iblTexturesDescriptorPool
+        };
+        
+        if (vk.AllocateDescriptorSets(SCDevice.LogicalDevice, in allocInfo, out descriptorSet) != Result.Success)
+        {
+            throw new Exception("Failed to allocate descriptor sets!");
+        }
+
+        DescriptorImageInfo irradianceInfo = new()
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = irradianceMap,
+            Sampler = textureSampler
+        };
+
+        DescriptorImageInfo brdfLUTInfo = new()
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = brdfLUT,
+            Sampler = textureSampler
+        };
+
+        DescriptorImageInfo prefilterInfo = new()
+        {
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
+            ImageView = prefilteredMap,
+            Sampler = textureSampler
+        };
+
+        var descriptorWrites = new WriteDescriptorSet[]
+        {
+            new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSet,
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &irradianceInfo
+            },
+            new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSet,
+                DstBinding = 1,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &brdfLUTInfo
+            },
+            new()
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = descriptorSet,
+                DstBinding = 2,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                PImageInfo = &prefilterInfo
+            }
+        };
+
+        fixed (WriteDescriptorSet* descriptorWritesPtr = descriptorWrites)
+            vk.UpdateDescriptorSets(SCDevice.LogicalDevice, (uint) descriptorWrites.Length, descriptorWritesPtr, 0, default);
+
+        return descriptorSet;
     }
 
     // Single Texture Descriptor Set

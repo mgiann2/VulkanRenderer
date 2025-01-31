@@ -11,6 +11,7 @@ vec2 SampleSphericalMap(vec3 skyboxPos)
     vec2 uv = vec2(atan(skyboxPos.z, skyboxPos.x), asin(skyboxPos.y));
     uv *= invAtan;
     uv += 0.5;
+    uv.y = 1.0 - uv.y;
     return uv;
 }
 

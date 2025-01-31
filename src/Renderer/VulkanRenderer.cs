@@ -118,11 +118,13 @@ unsafe public partial class VulkanRenderer : IDisposable
     DescriptorSetLayout uniformBufferDescriptorSetLayout;
     DescriptorSetLayout materialInfoDescriptorSetLayout;
     DescriptorSetLayout screenTextureDescriptorSetLayout;
+    DescriptorSetLayout iblTexturesDescriptorSetLayout;
     DescriptorSetLayout singleTextureDescriptorSetLayout;
 
     DescriptorPool uniformBufferDescriptorPool;
     public DescriptorPool materialInfoDescriptorPool;
     DescriptorPool screenTextureDescriptorPool;
+    DescriptorPool iblTexturesDescriptorPool;
     DescriptorPool singleTextureDescriptorPool;
 
     DescriptorSet[] sceneInfoDescriptorSets;
@@ -133,7 +135,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     DescriptorSet[] bloomPass1OutputTextureDescriptorSets;
     DescriptorSet[] bloomPass2OutputTextureDescriptorSets;
     DescriptorSet skyboxTextureDescriptorSet;
-    DescriptorSet irradianceMapDescriptorSet;
+    DescriptorSet iblTexturesDescriptorSet;
 
     GraphicsPipeline geometryPipeline;
     GraphicsPipeline compositionPipeline;
@@ -196,12 +198,14 @@ unsafe public partial class VulkanRenderer : IDisposable
         uniformBufferDescriptorPool = CreateUniformBufferDescriptorPool(MaxFramesInFlight + CubemapMapSceneInfoDescriptors + MaxLights * MaxFramesInFlight);
         materialInfoDescriptorPool = CreateMaterialInfoDescriptorPool(MaxMaterialDescriptorSets);
         screenTextureDescriptorPool = CreateScreenTextureInfoDescriptorPool();
+        iblTexturesDescriptorPool = CreateIBLTexturesDescriptorPool();
         singleTextureDescriptorPool = CreateSingleTextureDescriptorPool(MaxLights * MaxFramesInFlight + 32);
 
         // Create descriptor set layouts
         uniformBufferDescriptorSetLayout = CreateUniformBufferDescriptorSetLayout();
         materialInfoDescriptorSetLayout = CreateMaterialInfoDescriptorSetLayout();
         screenTextureDescriptorSetLayout = CreateScreenTexureInfoDescriptorSetLayout();
+        iblTexturesDescriptorSetLayout = CreateIBLTexturesDescriptorSetLayout();
         singleTextureDescriptorSetLayout = CreateSingleTextureDescriptorSetLayout();
 
         // Create render stages
@@ -273,7 +277,9 @@ unsafe public partial class VulkanRenderer : IDisposable
 
         // Create skybox descriptor sets
         skyboxTextureDescriptorSet = CreateSingleTextureDescriptorSets(new ImageView[]{ skyboxCubemap.CubemapImageView }, textureSampler)[0];
-        irradianceMapDescriptorSet = CreateSingleTextureDescriptorSets(new ImageView[]{ irradianceCubemap.CubemapImageView }, textureSampler)[0];
+        iblTexturesDescriptorSet = CreateIBLTexturesDescriptorSet(irradianceCubemap.CubemapImageView,
+                                                                   brdfLUTImageView,
+                                                                   prefilteredCubemap.CubemapImageView);
 
         window.FramebufferResize += OnFramebufferResize;
     }
@@ -442,7 +448,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         { 
             sceneInfoDescriptorSets[currentFrame],
             screenTextureInfoDescriptorSets[currentFrame],
-            irradianceMapDescriptorSet,
+            iblTexturesDescriptorSet,
             dirShadowMapDescriptorSets[currentFrame]
         };
 
@@ -650,12 +656,12 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Create descriptor sets
         Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
         {
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, -Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, -Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, -Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, -Vector3D<float>.UnitY),
         };
         Matrix4X4<float> projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView(MathF.PI / 2.0f, 1.0f, 0.1f, 100.0f);
 
@@ -731,12 +737,12 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Create descriptor sets
         Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
         {
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, -Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, -Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, -Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, -Vector3D<float>.UnitY),
         };
         Matrix4X4<float> projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView(MathF.PI / 2.0f, 1.0f, 0.1f, 10.0f);
 
@@ -819,12 +825,12 @@ unsafe public partial class VulkanRenderer : IDisposable
         // Create descriptor sets
         Matrix4X4<float>[] viewMatrices = new Matrix4X4<float>[]
         {
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitX, -Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitX, -Vector3D<float>.UnitY),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitY, Vector3D<float>.UnitZ),
             Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitY, -Vector3D<float>.UnitZ),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
-            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, Vector3D<float>.UnitZ, -Vector3D<float>.UnitY),
+            Matrix4X4.CreateLookAt(Vector3D<float>.Zero, -Vector3D<float>.UnitZ, -Vector3D<float>.UnitY),
         };
         Matrix4X4<float> projectionMatrix = Matrix4X4.CreatePerspectiveFieldOfView(MathF.PI / 2.0f, 1.0f, 0.1f, 10.0f);
 

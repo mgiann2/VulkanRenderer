@@ -21,7 +21,7 @@ float DistributionGGX(vec3 N, vec3 H, float roughness);
 void main()
 {
     vec3 N = normalize(inPosition);
-    
+
     // make the simplifying assumption that V equals R equals the normal 
     vec3 R = N;
     vec3 V = R;
