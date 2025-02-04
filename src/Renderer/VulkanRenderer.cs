@@ -628,11 +628,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         solidModelDrawCalls.Add(new(model, modelMatrix, Vector3D<float>.Zero));
     }
 
-    public void DeviceWaitIdle()
-    {
-        vk.DeviceWaitIdle(SCDevice.LogicalDevice);
-    }
-
     public void UpdateSceneInfo(SceneInfo sceneInfo)
     {
         this.sceneInfo = sceneInfo;
@@ -648,6 +643,7 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     void OnFramebufferResize(Vector2D<int> framebufferSize)
     {
+        Console.WriteLine("Resize");
         framebufferResized = true;
     }
 
@@ -991,10 +987,17 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     void CleanupSwapchainObjects()
     {
+        // Destroy pipelines
         vk.DestroyPipeline(SCDevice.LogicalDevice, postProcessPipeline.Pipeline, null);
         vk.DestroyPipelineLayout(SCDevice.LogicalDevice, postProcessPipeline.Layout, null);
+        vk.DestroyPipeline(SCDevice.LogicalDevice, bloom2Pipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, bloom2Pipeline.Layout, null);
+        vk.DestroyPipeline(SCDevice.LogicalDevice, bloom1Pipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, bloom1Pipeline.Layout, null);
         vk.DestroyPipeline(SCDevice.LogicalDevice, skyboxPipeline.Pipeline, null);
         vk.DestroyPipelineLayout(SCDevice.LogicalDevice, skyboxPipeline.Layout, null);
+        vk.DestroyPipeline(SCDevice.LogicalDevice, solidColorPipeine.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, solidColorPipeine.Layout, null);
         vk.DestroyPipeline(SCDevice.LogicalDevice, lightingPipeline.Pipeline, null);
         vk.DestroyPipelineLayout(SCDevice.LogicalDevice, lightingPipeline.Layout, null);
         vk.DestroyPipeline(SCDevice.LogicalDevice, compositionPipeline.Pipeline, null);
@@ -1002,9 +1005,25 @@ unsafe public partial class VulkanRenderer : IDisposable
         vk.DestroyPipeline(SCDevice.LogicalDevice, geometryPipeline.Pipeline, null);
         vk.DestroyPipelineLayout(SCDevice.LogicalDevice, geometryPipeline.Layout, null);
 
+        // Free descriptor sets
+        fixed (DescriptorSet* pDescriptorSets = sceneInfoDescriptorSets)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, uniformBufferDescriptorPool, (uint) sceneInfoDescriptorSets.Length, pDescriptorSets);
+        fixed (DescriptorSet* pDescriptorSets = screenTextureInfoDescriptorSets)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, screenTextureDescriptorPool, (uint) screenTextureInfoDescriptorSets.Length, pDescriptorSets);
+        fixed (DescriptorSet* pDescriptorSets = compositionOutputTextureDescriptorSets)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, (uint) compositionOutputTextureDescriptorSets.Length, pDescriptorSets);
+        fixed (DescriptorSet* pDescriptorSets = thresholdTextureDescriptorSets)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, (uint) thresholdTextureDescriptorSets.Length, pDescriptorSets);
+        fixed (DescriptorSet* pDescriptorSets = bloomPass1OutputTextureDescriptorSets)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, (uint) bloomPass1OutputTextureDescriptorSets.Length, pDescriptorSets);
+        fixed (DescriptorSet* pDescriptorSets = bloomPass2OutputTextureDescriptorSets)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, (uint) bloomPass2OutputTextureDescriptorSets.Length, pDescriptorSets);
+
+        // Destroy render stages
         geometryRenderStage.Dispose();
         compositionRenderStage.Dispose();
         bloomRenderStage1.Dispose();
+        bloomRenderStage2.Dispose();
         postProcessRenderStage.Dispose();
     }
 
@@ -1021,6 +1040,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         
         vk.DeviceWaitIdle(SCDevice.LogicalDevice);
 
+        CleanupSwapchainObjects();
         SCDevice.RecreateSwapchain(window);
 
         // Create render stages
@@ -1029,30 +1049,14 @@ unsafe public partial class VulkanRenderer : IDisposable
         (bloomRenderStage1, bloomAttachments1) = CreateBloomRenderStage();
         (bloomRenderStage2, bloomAttachments2) = CreateBloomRenderStage();
         (postProcessRenderStage, swapChainAttachments) = CreatePostProcessRenderStage();
-        (equirectangularToCubemapRenderStage, environmentMapAttachments) = CreateEquirectangularToCubemapRenderStage();
-        (irradianceMapRenderStage, irradianceMapAttachments) = CreateIrradianceMapRenderStage();
-        (depthMapRenderStage, depthMapAttachment) = CreateDepthMapRenderStage();
-        RenderPassBuilder renderPassBuilder = new(SCDevice);
-        renderPassBuilder.SetDepthStencilAttachment(VulkanHelper.FindDepthFormat(SCDevice), ImageLayout.ShaderReadOnlyOptimal);
-        pointShadowMapRenderPass = renderPassBuilder.Build();
-        for (int i = 0; i < pointShadowRenderStages.Length; i++)
-        {
-            (pointShadowRenderStages[i], pointShadowCubeMaps[i]) = CreatePointShadowRenderStage(); 
-        }
 
         // Create descriptor sets
         sceneInfoDescriptorSets = CreateSceneInfoDescriptorSets(sceneInfoBuffers);
         screenTextureInfoDescriptorSets = CreateScreenTextureInfoDescriptorSets(gBufferAttachments);
         compositionOutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Select(att => att.Color.ImageView).ToArray(), textureSampler);
         thresholdTextureDescriptorSets = CreateSingleTextureDescriptorSets(compositionAttachments.Select(att => att.ThresholdedColor.ImageView).ToArray(), textureSampler);
-        dirShadowMapDescriptorSets = CreateSingleTextureDescriptorSets(depthMapAttachment.Select(att => att.Depth.ImageView).ToArray(), shadowSampler);
         bloomPass1OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments1.Select(att => att.Color.ImageView).ToArray(), bloomSampler);
         bloomPass2OutputTextureDescriptorSets = CreateSingleTextureDescriptorSets(bloomAttachments2.Select(att => att.Color.ImageView).ToArray(), bloomSampler);
-        for (int i = 0; i < MaxLights; i++)
-        {
-            shadowMatricesDescriptorSets[i] = CreateShadowMatricesDescriptorSets(shadowMatricesBuffers[i]);
-            pointShadowDescriptorSets[i] = CreateSingleTextureDescriptorSets(pointShadowCubeMaps[i].Select(att => att.Depth.ImageView).ToArray(), shadowSampler);
-        }
 
         // Create pipelines
         geometryPipeline = CreateGeometryPipeline(geometryRenderStage.RenderPass);
@@ -1063,10 +1067,6 @@ unsafe public partial class VulkanRenderer : IDisposable
         bloom1Pipeline = CreateBloomPipeline(bloomRenderStage1.RenderPass);
         bloom2Pipeline = CreateBloomPipeline(bloomRenderStage2.RenderPass);
         postProcessPipeline = CreatePostProcessPipeline(postProcessRenderStage.RenderPass);
-        equirectangularToCubemapPipeline = CreateEquirectangularToCubemapPipeline(equirectangularToCubemapRenderStage.RenderPass);
-        irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
-        depthPipeline = CreateDepthPipeline(depthMapRenderStage.RenderPass);
-        pointShadowPipeline = CreatePointShadowPipeline(pointShadowMapRenderPass);
     }
 
     (RenderStage, GBufferAttachments[]) CreateGeometryRenderStage()
@@ -1461,6 +1461,8 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     protected virtual void Dispose(bool disposing)
     {
+        vk.DeviceWaitIdle(SCDevice.LogicalDevice);
+
         if (!disposedValue)
         {
             // free unmanaged resources unmanaged objects and override finalizer

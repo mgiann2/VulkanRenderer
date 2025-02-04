@@ -682,7 +682,8 @@ unsafe public partial class VulkanRenderer
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = (uint) MaxFramesInFlight
+            MaxSets = (uint) MaxFramesInFlight,
+            Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
         if (vk.CreateDescriptorPool(SCDevice.LogicalDevice, in poolInfo, null, out var descriptorPool) != Result.Success)
@@ -957,7 +958,8 @@ unsafe public partial class VulkanRenderer
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 1,
             PPoolSizes = &poolSize,
-            MaxSets = 1
+            MaxSets = 1,
+            Flags = DescriptorPoolCreateFlags.FreeDescriptorSetBit
         };
 
         if (vk.CreateDescriptorPool(SCDevice.LogicalDevice, in poolInfo, null, out var descriptorPool) != Result.Success)

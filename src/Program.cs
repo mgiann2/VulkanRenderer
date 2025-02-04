@@ -1,3 +1,5 @@
+#nullable disable
+
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 using Silk.NET.Input;
@@ -5,27 +7,27 @@ using Renderer;
 
 class Program
 {
-    const string ComputerModelPath = "assets/models/retro_computer/";
-    const string ComputerTexturePath = "textures/retro_computer_setup_Mat_";
-    const string MaterialsPath = "assets/materials/";
+    private const string ComputerModelPath = "assets/models/retro_computer/";
+    private const string ComputerTexturePath = "textures/retro_computer_setup_Mat_";
+    private const string MaterialsPath = "assets/materials/";
 
-    const float MouseSensitivity = 0.1f;
+    private const float MouseSensitivity = 0.1f;
 
-    static IWindow? window;
-    static VulkanRenderer? renderer;
-    static IInputContext? input;
+    private static IWindow window;
+    private static VulkanRenderer renderer;
+    private static IInputContext input;
 
-    static Camera? camera;
+    private static Camera camera;
 
-    static Transform? computerTransform;
-    static Model computerModel;
-    static Model cubeModel;
-    static Transform? cubeTransform;
-    static Model quadModel;
-    static Transform? quadTransform;
+    private static Transform computerTransform;
+    private static Model computerModel;
+    private static Model cubeModel;
+    private static Transform cubeTransform;
+    private static Model quadModel;
+    private static Transform quadTransform;
 
-    static Vector2D<float> keyboardMovement = Vector2D<float>.Zero;
-    static Vector2D<float> prevMousePosition = Vector2D<float>.Zero;
+    private static Vector2D<float> keyboardMovement = Vector2D<float>.Zero;
+    private static Vector2D<float> prevMousePosition = Vector2D<float>.Zero;
 
     public static void Main(string[] args)
     {
@@ -43,13 +45,13 @@ class Program
         {
             throw new Exception("Windowing platform doesn't support Vulkan");
         }
-        window.WindowBorder = WindowBorder.Fixed;
+        window.WindowBorder = WindowBorder.Resizable;
 
         window.Render += OnRender;
         window.Closing += OnClose;
 
         // setup renderer
-        renderer = new VulkanRenderer(window!, true);
+        renderer = new VulkanRenderer(window, true);
 
         // setup input
         input = window!.CreateInput();
@@ -59,7 +61,7 @@ class Program
         }
         foreach (var mouse in input.Mice)
         {
-            mouse.Cursor.CursorMode = CursorMode.Raw;
+            // mouse.Cursor.CursorMode = CursorMode.Raw;
             mouse.MouseMove += OnMouseMove;
         }
 
@@ -94,27 +96,27 @@ class Program
             light.Position = new Vector3D<float>(rand.NextSingle() * 20.0f - 10.0f, rand.NextSingle() + 1.0f, rand.NextSingle() * 20.0f - 10.0f);
             lights[i] = light;
         }
-        renderer!.Lights.AddRange(lights);
+        renderer.Lights.AddRange(lights);
 
         window.Run();
     }
 
-    static void OnRender(double deltaTime)
+    private static void OnRender(double deltaTime)
     {
         HandleInput();
 
         // update rendering info
-        (var width, var height) = (window!.FramebufferSize.X, window!.FramebufferSize.Y);
+        (var width, var height) = (window.FramebufferSize.X, window.FramebufferSize.Y);
 
         // move camera
-        camera!.Transform.Translate(camera!.Transform.Forward * (float) deltaTime * keyboardMovement.Y);
-        camera!.Transform.Translate(camera!.Transform.Right * (float) deltaTime * keyboardMovement.X);
+        camera.Transform.Translate(camera.Transform.Forward * (float) deltaTime * keyboardMovement.Y);
+        camera.Transform.Translate(camera.Transform.Right * (float) deltaTime * keyboardMovement.X);
 
         SceneInfo sceneInfo = new()
         {
-            CameraView = camera!.GetViewMatrix(),
-            CameraProjection = camera!.GetProjectionMatrix((float) width / height),
-            CameraPosition = camera!.Transform.Position,
+            CameraView = camera.GetViewMatrix(),
+            CameraProjection = camera.GetProjectionMatrix((float) width / height),
+            CameraPosition = camera.Transform.Position,
             DirectionalLightDirection = new Vector3D<float>(2.0f, -4.0f, 1.0f),
             DirectionalLightColor = new Vector3D<float>(0.35f, 0.25f, 0.2f),
         };
@@ -124,45 +126,45 @@ class Program
         Matrix4X4<float> lightProj = Matrix4X4.CreateOrthographicOffCenter(-10.0f, 10.0f, 10.0f, -10.0f, 1.0f, 7.5f);
         sceneInfo.LightSpaceMatrix = lightView * lightProj;
 
-        renderer!.UpdateSceneInfo(sceneInfo);
+        renderer.UpdateSceneInfo(sceneInfo);
 
         // start rendering
         renderer.BeginFrame();
 
-        renderer.DrawModel(computerModel, computerTransform!.Matrix);
-        renderer.DrawModel(cubeModel, cubeTransform!.Matrix);
-        renderer.DrawModel(quadModel, quadTransform!.Matrix);
+        renderer.DrawModel(computerModel, computerTransform.Matrix);
+        renderer.DrawModel(cubeModel, cubeTransform.Matrix);
+        renderer.DrawModel(quadModel, quadTransform.Matrix);
 
         renderer.EndFrame();
     }
 
-    static void OnClose()
+    private static void OnClose()
     {
-        renderer!.DeviceWaitIdle();
         computerModel.Mesh.Dispose();
         cubeModel.Mesh.Dispose();
         quadModel.Mesh.Dispose();
         computerModel.Material.Dispose();
+        renderer.Dispose();
     }
 
-    static void OnKeyDown(IKeyboard keyboard, Key key, int keyCode)
+    private static void OnKeyDown(IKeyboard keyboard, Key key, int keyCode)
     {
         if (key == Key.Escape)
-            window!.Close();
+            window.Close();
     }
 
-    static void OnMouseMove(IMouse mouse, System.Numerics.Vector2 mousePos)
+    private static void OnMouseMove(IMouse mouse, System.Numerics.Vector2 mousePos)
     {
         var currMousePos = new Vector2D<float>(mousePos.X, mousePos.Y);
         var mouseMovement = currMousePos - prevMousePosition;
 
         Vector3D<float> rotation = new Vector3D<float>(-mouseMovement.Y, mouseMovement.X, 0.0f) * MouseSensitivity;
-        camera!.Transform.Rotate(rotation);
+        camera.Transform.Rotate(rotation);
 
         prevMousePosition = currMousePos;
     }
 
-    static void HandleInput()
+    private static void HandleInput()
     {
         // treat all connected keyboards as a single input source
         Key[] keysToCheck = new[] { Key.W, Key.A, Key.S, Key.D };
@@ -191,5 +193,5 @@ class Program
             keyboardMovement.Y -= 1f;
     }
 
-    static float Radians(float angle) => angle * MathF.PI / 180f;
+    private static float Radians(float angle) => angle * MathF.PI / 180f;
 }
