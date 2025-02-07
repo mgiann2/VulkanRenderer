@@ -141,13 +141,9 @@ unsafe public class ImageViewAttachment : IFramebufferAttachment, IDisposable
 
     protected virtual void Dispose(bool disposing)
     {
-        Vk vk = VulkanHelper.Vk;
-
         if (!disposedValue)
         {
             // free unmanaged resources (unmanaged objects) and override finalizer
-            vk.DestroyImageView(scDevice.LogicalDevice, ImageView, null);
-
             disposedValue = true;
         }
     }

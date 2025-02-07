@@ -144,13 +144,13 @@ class Program
 
     private static void OnClose()
     {
+        renderer.WaitIdle();
+
         computerModel.Mesh.Dispose();
         computerModel.Material.Dispose();
     
-        floorModel.Material.Dispose();
         floorModel.Mesh.Dispose();
-
-        renderer.Dispose();
+        floorModel.Material.Dispose();
     }
 
     private static void OnKeyDown(IKeyboard keyboard, Key key, int keyCode)

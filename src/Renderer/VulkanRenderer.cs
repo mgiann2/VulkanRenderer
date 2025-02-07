@@ -252,7 +252,7 @@ unsafe public partial class VulkanRenderer : IDisposable
         irradianceMapPipeline = CreateIrradiancePipeline(irradianceMapRenderStage.RenderPass);
         brdfPipeline = CreateBRDFLUTPipeline(brdfLUTTextureRenderStage.RenderPass);
         depthPipeline = CreateDepthPipeline(depthMapRenderStage.RenderPass);
-        pointShadowPipeline = CreatePointShadowPipeline(pointShadowMapRenderPass);
+        pointShadowPipeline = CreatePointShadowPipeline(pointShadowRenderStages[0].RenderPass);
 
         // Create sync objects
         imageAvailableSemaphores = VulkanHelper.CreateSemaphores(SCDevice, MaxFramesInFlight);
@@ -622,6 +622,11 @@ unsafe public partial class VulkanRenderer : IDisposable
         currentFrame = (currentFrame + 1) % MaxFramesInFlight;
     }
 
+    public void WaitIdle()
+    {
+        vk.DeviceWaitIdle(SCDevice.LogicalDevice);
+    }
+
     public void DrawModel(Model model, Matrix4X4<float> modelMatrix)
     {
         solidModelDrawCalls.Add(new(model, modelMatrix, Vector3D<float>.Zero));
@@ -642,7 +647,6 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     void OnFramebufferResize(Vector2D<int> framebufferSize)
     {
-        Console.WriteLine("Resize");
         framebufferResized = true;
     }
 
@@ -1024,6 +1028,60 @@ unsafe public partial class VulkanRenderer : IDisposable
         bloomRenderStage1.Dispose();
         bloomRenderStage2.Dispose();
         postProcessRenderStage.Dispose();
+    }
+
+    void CleanupShadowMapObjects()
+    {
+        // Dispose render stages
+        equirectangularToCubemapRenderStage.Dispose();
+        irradianceMapRenderStage.Dispose();
+        brdfLUTTextureRenderStage.Dispose();
+        depthMapRenderStage.Dispose();
+        foreach (var pointShadowRenderStage in pointShadowRenderStages) 
+        {
+            pointShadowRenderStage.Dispose();
+        }
+
+        // Destroy graphics pipelines
+        vk.DestroyPipeline(SCDevice.LogicalDevice, equirectangularToCubemapPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, equirectangularToCubemapPipeline.Layout, null);
+
+        vk.DestroyPipeline(SCDevice.LogicalDevice, irradianceMapPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, irradianceMapPipeline.Layout, null);
+
+        vk.DestroyPipeline(SCDevice.LogicalDevice, brdfPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, brdfPipeline.Layout, null);
+
+        vk.DestroyPipeline(SCDevice.LogicalDevice, depthPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, depthPipeline.Layout, null);
+
+        vk.DestroyPipeline(SCDevice.LogicalDevice, pointShadowPipeline.Pipeline, null);
+        vk.DestroyPipelineLayout(SCDevice.LogicalDevice, pointShadowPipeline.Layout, null);
+
+        // Dispose cubemaps
+        skyboxCubemap.Dispose();
+        irradianceCubemap.Dispose();
+        prefilteredCubemap.Dispose();
+
+        // Free skybox descriptor sets
+        fixed (DescriptorSet* pDescriptorSets = &skyboxTextureDescriptorSet)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, 1, pDescriptorSets);
+        fixed (DescriptorSet* pDescriptorSets = &iblTexturesDescriptorSet)
+            vk.FreeDescriptorSets(SCDevice.LogicalDevice, singleTextureDescriptorPool, 1, pDescriptorSets);
+
+        // free shadow matrices uniform buffers and descriptor sets
+        for (int i = 0; i < MaxLights; i++)
+        {
+            fixed (DescriptorSet* pDescriptorSets = shadowMatricesDescriptorSets[i])
+                vk.FreeDescriptorSets(SCDevice.LogicalDevice, uniformBufferDescriptorPool, MaxFramesInFlight, pDescriptorSets);
+
+            for (int j = 0; j < MaxFramesInFlight; j++)
+            {
+                vk.DestroyBuffer(SCDevice.LogicalDevice, shadowMatricesBuffers[i][j], null);
+                pointShadowDescriptorSets[i] = CreateSingleTextureDescriptorSets(pointShadowCubeMaps[i].Select(att => att.Depth.ImageView).ToArray(), shadowSampler);
+                vk.FreeMemory(SCDevice.LogicalDevice, shadowMatricesMemories[i][j], null);
+            }
+        }
     }
 
     void RecreateSwapchain()
@@ -1460,21 +1518,26 @@ unsafe public partial class VulkanRenderer : IDisposable
 
     protected virtual void Dispose(bool disposing)
     {
-        vk.DeviceWaitIdle(SCDevice.LogicalDevice);
-
         if (!disposedValue)
         {
             // free unmanaged resources unmanaged objects and override finalizer
             for (int i = 0; i < MaxFramesInFlight; i++)
             {
                 vk.DestroySemaphore(SCDevice.LogicalDevice, imageAvailableSemaphores[i], null);
+                vk.DestroySemaphore(SCDevice.LogicalDevice, geomSemaphores[i], null);
+                vk.DestroySemaphore(SCDevice.LogicalDevice, compSemaphores[i], null);
+                vk.DestroySemaphore(SCDevice.LogicalDevice, bloom1Semaphores[i], null);
+                vk.DestroySemaphore(SCDevice.LogicalDevice, bloom2Semaphores[i], null);
+                vk.DestroySemaphore(SCDevice.LogicalDevice, postProcessSemaphores[i], null);
                 vk.DestroyFence(SCDevice.LogicalDevice, inFlightFences[i], null);
             }
 
             vk.DestroySampler(SCDevice.LogicalDevice, textureSampler, null);
+            vk.DestroySampler(SCDevice.LogicalDevice, bloomSampler, null);
+            vk.DestroySampler(SCDevice.LogicalDevice, shadowSampler, null);
 
             CleanupSwapchainObjects();
-
+            CleanupShadowMapObjects();
 
             vk.DestroyCommandPool(SCDevice.LogicalDevice, SCDevice.CommandPool, null);
 

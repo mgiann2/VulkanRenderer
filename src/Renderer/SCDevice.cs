@@ -52,6 +52,8 @@ unsafe public class SCDevice : IDisposable
 
     private Vk vk = VulkanHelper.Vk;
     private Instance instance;
+    private ExtDebugUtils? debugUtils;
+    private DebugUtilsMessengerEXT? debugMessenger;
     private KhrSurface khrSurface;
     private SurfaceKHR surface;
 
@@ -75,6 +77,7 @@ unsafe public class SCDevice : IDisposable
         EnableValidationLayers = enableValidationLayers; 
 
         instance = CreateInstance(window.VkSurface);
+        (debugMessenger, debugUtils) = SetupDebugMessenger();
         (khrSurface, surface) = CreateSurface(window.VkSurface);
         PhysicalDevice = PickPhysicalDevice();
         LogicalDevice = CreateLogicalDevice();
@@ -339,6 +342,32 @@ unsafe public class SCDevice : IDisposable
         return instance;
     }
     
+    private (DebugUtilsMessengerEXT?, ExtDebugUtils?) SetupDebugMessenger()
+    {
+        if (!EnableValidationLayers) return (null, null);
+    
+        if (!vk.TryGetInstanceExtension(instance, out ExtDebugUtils debugUtils)) return (null, null);
+
+        DebugUtilsMessengerCreateInfoEXT messengerInfo = new()
+        {
+            SType = StructureType.DebugUtilsMessengerCreateInfoExt,
+            MessageSeverity = DebugUtilsMessageSeverityFlagsEXT.VerboseBitExt |
+                              DebugUtilsMessageSeverityFlagsEXT.WarningBitExt |
+                              DebugUtilsMessageSeverityFlagsEXT.ErrorBitExt,
+            MessageType = DebugUtilsMessageTypeFlagsEXT.GeneralBitExt |
+                          DebugUtilsMessageTypeFlagsEXT.ValidationBitExt |
+                          DebugUtilsMessageTypeFlagsEXT.PerformanceBitExt,
+            PfnUserCallback = (PfnDebugUtilsMessengerCallbackEXT) DebugCallback
+        };
+        
+        if (debugUtils.CreateDebugUtilsMessenger(instance, in messengerInfo, null, out var messenger) != Result.Success)
+        {
+            throw new Exception("Failed to create debug messenger!");
+        }
+
+        return (messenger, debugUtils);
+    }
+
     private (KhrSurface, SurfaceKHR) CreateSurface(IVkSurface windowSurface)
     {
         if (!vk.TryGetInstanceExtension(instance, out KhrSurface khrSurface))
@@ -706,7 +735,8 @@ unsafe public class SCDevice : IDisposable
             DebugUtilsMessengerCallbackDataEXT* pCallbackData,
             void* pUserData)
     {
-        Console.WriteLine($"Validation layer: {Marshal.PtrToStringAnsi((nint) pCallbackData->PMessage)}");
+        if (messageSeverity == DebugUtilsMessageSeverityFlagsEXT.ErrorBitExt) 
+            Console.WriteLine($"Validation layer: {Marshal.PtrToStringAnsi((nint) pCallbackData->PMessage)}");
 
         return Vk.False;
     }
@@ -724,6 +754,12 @@ unsafe public class SCDevice : IDisposable
 
             vk.DestroyDevice(LogicalDevice, null);
             khrSurface.DestroySurface(instance, surface, null);
+
+            if (debugMessenger is DebugUtilsMessengerEXT messenger && debugUtils is ExtDebugUtils)
+            {
+                debugUtils.DestroyDebugUtilsMessenger(instance, messenger, null);
+            }
+
             vk.DestroyInstance(instance, null);
 
             disposedValue = true;
