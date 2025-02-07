@@ -1,5 +1,7 @@
 # Vulkan Renderer Demo
 
+![Preview of Renderer](preview.png)
+
 A 3D renderer written in C# using Silk.NET with Vulkan. This renderer implements the following techniques:
 - Deferred shading
 - Directional and omnidirectional lights
