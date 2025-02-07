@@ -60,10 +60,9 @@ unsafe public partial class VulkanRenderer : IDisposable
     const int MaxFramesInFlight = 2;
     const int CubemapMapSceneInfoDescriptors = 6;
     const int MaxMaterialDescriptorSets = 128;
-    const int MaxLights = 32;
+    const int MaxLights = 32; // Lights assumed to have at most MaxLights number of lights, this should be enforced
 
-    // TODO: temporary to test lights
-    public List<Light> Lights = new List<Light>();
+    public List<Light> Lights = new List<Light>(); // TODO: Improve interface on how lights are rendered in frame
     private RenderStage[] pointShadowRenderStages = new RenderStage[MaxLights];
     private DepthCubeMapOnlyAttachment[][] pointShadowCubeMaps = new DepthCubeMapOnlyAttachment[MaxLights][];
     private DescriptorSet[][] shadowMatricesDescriptorSets = new DescriptorSet[MaxLights][];
@@ -73,7 +72,7 @@ unsafe public partial class VulkanRenderer : IDisposable
     // Low Resolution: 512x512 => 1Mb per face => 6Mb per cubemap => 0.75Gb for 128 lights
     // Medium Resolution: 1024x1024 => 4Mb per face => 24Mb per cubemap => 3Gb for 128 lights
     // High Resolution : 2048x2048 => 16Mb per face => 96Mb per cubemap => 12Gb for 128 lights
-    const uint ShadowMapResolution = 512;
+    const uint ShadowMapResolution = 1024;
     const uint PointShadowMapResolution = 256;
 
     const string SphereMeshPath = AssetsPath + "models/sphere/sphere.glb";
@@ -1472,15 +1471,12 @@ unsafe public partial class VulkanRenderer : IDisposable
                 vk.DestroyFence(SCDevice.LogicalDevice, inFlightFences[i], null);
             }
 
-            geometryRenderStage.Dispose();
-            compositionRenderStage.Dispose();
-            postProcessRenderStage.Dispose();
-
             vk.DestroySampler(SCDevice.LogicalDevice, textureSampler, null);
 
-            vk.DestroyCommandPool(SCDevice.LogicalDevice, SCDevice.CommandPool, null);
-
             CleanupSwapchainObjects();
+
+
+            vk.DestroyCommandPool(SCDevice.LogicalDevice, SCDevice.CommandPool, null);
 
             for (int i = 0; i < MaxFramesInFlight; i++)
             {

@@ -21,17 +21,28 @@ class Program
 
     private static Transform computerTransform;
     private static Model computerModel;
-    private static Model cubeModel;
-    private static Transform cubeTransform;
-    private static Model quadModel;
-    private static Transform quadTransform;
+
+    private static Transform floorTransform;
+    private static Model floorModel;
+    private static Material floorMaterial;
 
     private static Vector2D<float> keyboardMovement = Vector2D<float>.Zero;
     private static Vector2D<float> prevMousePosition = Vector2D<float>.Zero;
 
     public static void Main(string[] args)
     {
-        // setup window
+        SetupWindow();
+        renderer = new VulkanRenderer(window, true);
+
+        SetupInput();
+
+        CreateSceneObjects();
+
+        window.Run();
+    }
+
+    public static void SetupWindow()
+    {
         var options = WindowOptions.DefaultVulkan with
         {
             Size = new Vector2D<int>(1920, 1080),
@@ -49,11 +60,10 @@ class Program
 
         window.Render += OnRender;
         window.Closing += OnClose;
+    }
 
-        // setup renderer
-        renderer = new VulkanRenderer(window, true);
-
-        // setup input
+    public static void SetupInput()
+    {
         input = window!.CreateInput();
         foreach (var keyboard in input.Keyboards)
         {
@@ -61,15 +71,19 @@ class Program
         }
         foreach (var mouse in input.Mice)
         {
-            // mouse.Cursor.CursorMode = CursorMode.Raw;
+            mouse.Cursor.CursorMode = CursorMode.Raw;
             mouse.MouseMove += OnMouseMove;
         }
 
         prevMousePosition = new Vector2D<float>(window.Size.X / 2, window.Size.Y / 2);
+    }
 
-        // load scene objects
+    public static void CreateSceneObjects()
+    {
+        // Create camera
         camera = new Camera(new Vector3D<float>(2.0f, 1.0f, -4.0f), Vector3D<float>.Zero, Vector3D<float>.One, 45.0f);
 
+        // Create models and their transforms
         computerModel = new Model(renderer,
                 ComputerModelPath + "scene.gltf",
                 ComputerModelPath + ComputerTexturePath + "baseColor.png",
@@ -77,28 +91,19 @@ class Program
                 ComputerModelPath + ComputerTexturePath + "metallicRoughness.png");
         computerTransform = new Transform(Vector3D<float>.Zero, new Vector3D<float>(90.0f, 180.0f, 0.0f), new Vector3D<float>(0.01f, 0.01f, 0.01f));
 
-        var paintedMetalMaterial = new Material(renderer, MaterialsPath + "PaintedMetal/BaseColor.png",
-                                                          MaterialsPath + "PaintedMetal/Normal.png",
-                                                          MaterialsPath + "PaintedMetal/ARM.png");
-        cubeModel = new Model(PrimitiveMesh.CreateCubeMesh(renderer), paintedMetalMaterial);
-        cubeTransform = new Transform(new Vector3D<float>(4.0f, 0.0f, 0.0f), Vector3D<float>.Zero, Vector3D<float>.One);
+        floorMaterial = new Material(renderer, MaterialsPath + "ScratchedPaintedMetal/BaseColor.png",
+                                     MaterialsPath + "ScratchedPaintedMetal/Normal.png",
+                                     MaterialsPath + "ScratchedPaintedMetal/ARM.png");
+        floorModel = new Model(PrimitiveMesh.CreateQuadMesh(renderer), floorMaterial);
+        floorTransform = new Transform(new Vector3D<float>(0.0f, -0.1f, 0.0f), Vector3D<float>.UnitX * 90.0f, Vector3D<float>.One);
 
-        quadModel = new Model(PrimitiveMesh.CreateQuadMesh(renderer), paintedMetalMaterial);
-        quadTransform = new Transform(new Vector3D<float>(0.0f, -0.51f, 0.0f), new Vector3D<float>(90.0f, 0.0f, 0.0f), new Vector3D<float>(10.0f));
-
-        // add lights to scene
-        Random rand = new Random(12345);
-        Light[] lights = new Light[32];
-        for (int i = 0; i < lights.Length; i++)
+        // Add lights to scene
+        Light[] lights = new Light[2]
         {
-            var light = new Light();
-            light.Color = new Vector3D<float>(rand.NextSingle(), rand.NextSingle(), rand.NextSingle());
-            light.Position = new Vector3D<float>(rand.NextSingle() * 20.0f - 10.0f, rand.NextSingle() + 1.0f, rand.NextSingle() * 20.0f - 10.0f);
-            lights[i] = light;
-        }
+            new() { Position = new Vector3D<float>(1.0f, 1.0f, 0.0f), Color = new Vector3D<float>(0.0f, 1.0f, 0.0f) },
+            new() { Position = new Vector3D<float>(-1.0f, 1.0f, 0.0f), Color = new Vector3D<float>(1.0f, 0.0f, 0.0f) }
+        };
         renderer.Lights.AddRange(lights);
-
-        window.Run();
     }
 
     private static void OnRender(double deltaTime)
@@ -132,8 +137,7 @@ class Program
         renderer.BeginFrame();
 
         renderer.DrawModel(computerModel, computerTransform.Matrix);
-        renderer.DrawModel(cubeModel, cubeTransform.Matrix);
-        renderer.DrawModel(quadModel, quadTransform.Matrix);
+        renderer.DrawModel(floorModel, floorTransform.Matrix);
 
         renderer.EndFrame();
     }
@@ -141,9 +145,11 @@ class Program
     private static void OnClose()
     {
         computerModel.Mesh.Dispose();
-        cubeModel.Mesh.Dispose();
-        quadModel.Mesh.Dispose();
         computerModel.Material.Dispose();
+    
+        floorModel.Material.Dispose();
+        floorModel.Mesh.Dispose();
+
         renderer.Dispose();
     }
 
