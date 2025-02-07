@@ -25,10 +25,13 @@ A 3D renderer written in C# using Silk.NET with Vulkan. This renderer implements
 - Batching draw calls to reduce overhead
 - Improved support for different 3D models and materials
 
-## References and Credits
+## References
 - [Learn OpenGL](https://learnopengl.com)
 - [Khronos Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/00_Introduction.html)
 - [Vulkan C++ examples and demos](https://github.com/SaschaWillems/Vulkan)
 - [ACES Filmic Tonemapping Curve](https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/)
-- [CG Bookcase](https://www.cgbookcase.com/)
-- [Ambient CG](https://ambientcg.com/)
+
+## Asset Sources
+- [Sketchfab](https://sketchfab.com) - For computer model
+- [CG Bookcase](https://www.cgbookcase.com/) - For PBR textures
+- [Ambient CG](https://ambientcg.com/) - For skybox hdri
